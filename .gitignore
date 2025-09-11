@@ -1,0 +1,76 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Packaging / build artifacts
+build/
+dist/
+downloads/
+*.egg
+*.egg-info/
+.eggs/
+src/*.egg-info/
+pip-wheel-metadata/
+wheels/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.tox/
+
+# Type checkers / linters
+.mypy_cache/
+.pytype/
+.pyre/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and run outputs
+*.log
+lightning_logs/
+**/lightning_logs/
+*.ckpt
+events.out.tfevents*
+
+# Docs (Sphinx)
+docs/build/
+docs/_build/
+docs/site/
+docs/build/html/
+docs/build/doctrees/
+docs/build/jupyter_execute/
+
+# IDE / editor
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Misc
+*.swp
+*.swo
+*.tmp
+*.bak
+~$*
+
+# macOS Finder metadata anywhere
+**/.DS_Store

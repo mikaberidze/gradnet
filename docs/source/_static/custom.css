@@ -1,0 +1,10 @@
+/* Expand content width to use available screen space */
+.wy-nav-content {
+  max-width: 100% !important;
+}
+
+/* Optional: ensure inner content also stretches */
+.rst-content {
+  max-width: 100% !important;
+}
+

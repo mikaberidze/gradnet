@@ -1,0 +1,4 @@
+# Keep Sphinx on a stable major version compatible with our config
+Sphinx>=5,<8
+myst-nb>=0.17
+sphinx_rtd_theme>=1.1
