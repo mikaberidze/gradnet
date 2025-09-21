@@ -119,6 +119,10 @@ class GradNetLightning(pl.LightningModule):
         compile_model: bool = False,
     ):
         super().__init__()
+        gradnet_config = None
+        if isinstance(gn, GradNet) and hasattr(gn, "export_config"):
+            gradnet_config = gn.export_config()
+        self.save_hyperparameters({"gradnet_config": gradnet_config}, logger=False)
         self.gn = gn
         self.loss_fn = loss_fn
         self.loss_kwargs = loss_kwargs
@@ -342,12 +346,10 @@ def fit(
         ``torch.use_deterministic_algorithms(bool(deterministic))``.
     :type deterministic: bool | str | None, optional
     :raises TypeError: If ``loss_kwargs`` is not a mapping (and not ``None``).
-    :return: Training artifacts.
-        - ``trainer``: the instantiated ``pl.Trainer``
-        - ``module``: the internal ``LightningModule`` wrapper
-        - ``best_ckpt_path``: path to the best checkpoint, or ``None`` if
-          checkpointing is disabled
-    :rtype: dict
+    :return: Tuple ``(trainer, best_ckpt_path)`` where ``trainer`` is the
+        instantiated ``pl.Trainer`` and ``best_ckpt_path`` is the path to the
+        best checkpoint (or ``None`` when checkpointing is disabled).
+    :rtype: tuple[pl.Trainer, str | None]
 
     .. tip::
        To use TensorBoard logging, pass a TensorBoard logger instance, e.g.::
@@ -437,11 +439,7 @@ def fit(
         for name, lvl in prev_levels.items():
             logging.getLogger(name).setLevel(lvl)
 
-    return {
-        "trainer": trainer,
-        "module": module,
-        "best_ckpt_path": ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None,
-    }
+    return trainer, (ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None)
 
 
 #TODO figure out logging (plot loss and metrics)

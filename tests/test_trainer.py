@@ -101,7 +101,7 @@ def test_configure_optimizers_with_scheduler():
 def test_fit_runs_and_calls_renorm(tmp_path: pathlib.Path):
     net = DummyNet()
     num_updates = 3
-    out = fit(
+    trainer, best_ckpt = fit(
         gn=net,
         loss_fn=simple_loss,
         loss_kwargs={"scale": 1.0},
@@ -114,9 +114,8 @@ def test_fit_runs_and_calls_renorm(tmp_path: pathlib.Path):
         grad_clip_val=0.0,
         post_step_renorm=True,
     )
-    # Trainer and module returned
-    assert "trainer" in out and "module" in out and "best_ckpt_path" in out
-    assert isinstance(out["trainer"], pl.Trainer)
+    assert isinstance(trainer, pl.Trainer)
+    assert best_ckpt is None
     # renorm called once per update
     assert net.renorm_calls == num_updates
 
@@ -126,7 +125,7 @@ def test_checkpointing_and_monitor_key(tmp_path: pathlib.Path):
     ckpt_dir = tmp_path / "ckpts"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    out = fit(
+    trainer, best = fit(
         gn=net,
         loss_fn=simple_loss,
         loss_kwargs={"scale": 1.0},
@@ -142,10 +141,9 @@ def test_checkpointing_and_monitor_key(tmp_path: pathlib.Path):
         logger=False,
         accelerator="cpu",
     )
-    # monitor key wired to module
-    assert out["module"].monitor_key == "custom_loss"
+    module = trainer.lightning_module
+    assert module.monitor_key == "custom_loss"
     # best checkpoint path should be a file path when checkpointing enabled
-    best = out["best_ckpt_path"]
     assert isinstance(best, str) and len(best) > 0
     assert os.path.exists(best)
 
@@ -155,7 +153,7 @@ def test_callbacks_are_appended(tmp_path: pathlib.Path):
     class MyCB(pl.Callback):
         pass
     cb = MyCB()
-    out = fit(
+    trainer, _ = fit(
         gn=net,
         loss_fn=simple_loss,
         loss_kwargs={"scale": 1.0},
@@ -167,7 +165,6 @@ def test_callbacks_are_appended(tmp_path: pathlib.Path):
         logger=False,
         accelerator="cpu",
     )
-    trainer: pl.Trainer = out["trainer"]
     # our callback present
     assert any(isinstance(c, MyCB) for c in trainer.callbacks)
     # progress bar callback appended
@@ -217,7 +214,7 @@ def test_compile_model_flag(monkeypatch, tmp_path: pathlib.Path):
 
     monkeypatch.setattr(torch, "compile", fake_compile)
 
-    out = fit(
+    trainer, _ = fit(
         gn=net,
         loss_fn=simple_loss,
         loss_kwargs={"scale": 1.0},
@@ -231,7 +228,7 @@ def test_compile_model_flag(monkeypatch, tmp_path: pathlib.Path):
     )
 
     assert net.compiled_set is True
-    assert out["module"].compile_model is True
+    assert trainer.lightning_module.compile_model is True
 
 
 def test_loss_kwargs_type_error():

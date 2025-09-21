@@ -21,6 +21,8 @@ from gradnet.gradnet import (
     SparseParameterization,
     GradNet,
 )
+from gradnet.utils import to_networkx
+from gradnet.trainer import fit
 
 
 def _p_cost_norm(x, cost, p: int):
@@ -60,7 +62,7 @@ def test_denseparam_forward_pipeline_budget_and_mask():
         budget=budget,
         mask=mask,
         cost_matrix=cost,
-        positive=True,
+        delta_sign="nonnegative",
         undirected=True,
         use_budget_up=True,
         cost_aggr_norm=1,
@@ -89,7 +91,7 @@ def test_denseparam_no_upscale_when_disabled():
         budget=1000.0,  # huge budget
         mask=mask,
         cost_matrix=cost,
-        positive=False,
+        delta_sign="free",
         undirected=False,
         use_budget_up=False,  # do not upscale
         cost_aggr_norm=2,
@@ -117,7 +119,7 @@ def test_sparseparam_budget_and_mirroring():
         budget=3.0,
         edge_index=edge_index,
         cost_p_sum=cost_p_sum,
-        positive=True,
+        delta_sign="nonnegative",
         undirected=True,
         use_budget_up=True,
         cost_aggr_norm=1,
@@ -157,7 +159,8 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
         budget=2.0,
         mask=mask_dense,
         adj0=torch.eye(N),
-        positive=True,
+        delta_sign="nonnegative",
+        final_sign="nonnegative",
         undirected=True,
         rand_init_weights=False,
         use_budget_up=True,
@@ -181,7 +184,8 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
         budget=1.5,
         mask=mask_sparse,
         adj0=torch.zeros((N, N)),
-        positive=False,
+        delta_sign="free",
+        final_sign="free",
         undirected=True,
         rand_init_weights=False,
         use_budget_up=True,
@@ -196,6 +200,26 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
     A2 = gn_sparse()
     # adj0 is dense zeros; adding sparse delta yields dense tensor per implementation
     assert A2.layout == torch.strided
+
+    # final_sign projection enforces the desired sign cone on the output
+    gn_nonpos = GradNet(
+        num_nodes=N,
+        budget=1.0,
+        mask=mask_dense,
+        adj0=torch.zeros((N, N)),
+        delta_sign="nonnegative",
+        final_sign="nonpositive",
+        undirected=True,
+        rand_init_weights=False,
+        use_budget_up=True,
+        cost_matrix=torch.ones((N, N)),
+        cost_aggr_norm=1,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    gn_nonpos.set_initial_state(torch.ones((N, N)))
+    A3 = gn_nonpos()
+    assert torch.all(A3 <= 0)
 
 
 def test_prepare_edge_list_and_cost_aggregation_and_gather_helpers():
@@ -255,7 +279,7 @@ def test_to_networkx_prunes_and_types():
         dtype=torch.float32,
     )
     # Make a tiny budget so some edges fall below threshold
-    net = gn.to_networkx(pruning_threshold=1e-6)
+    net = to_networkx(gn, pruning_threshold=1e-6)
     assert net.number_of_nodes() == N
     # undirected graph expected
     import networkx as nx
@@ -279,7 +303,7 @@ def test_to_networkx_directed_graph_edges():
         device="cpu",
         dtype=torch.float32,
     )
-    net = gn.to_networkx(pruning_threshold=0.0)
+    net = to_networkx(gn, pruning_threshold=0.0)
     import networkx as nx
     assert isinstance(net, nx.DiGraph)
     # With directed graph, (i,j) and (j,i) are distinct; since initialization is
@@ -305,7 +329,7 @@ def test_to_networkx_directed_with_asymmetric_mask():
         device="cpu",
         dtype=torch.float32,
     )
-    net = gn.to_networkx(pruning_threshold=0.0)
+    net = to_networkx(gn, pruning_threshold=0.0)
     import networkx as nx
     assert isinstance(net, nx.DiGraph)
     # Expect edges only in upper-triangular direction
@@ -326,7 +350,7 @@ def test_denseparam_dof_renorm_scale():
         budget=1.0,
         mask=mask,
         cost_matrix=torch.ones((N, N)),
-        positive=False,
+        delta_sign="free",
         undirected=True,
         use_budget_up=True,
         cost_aggr_norm=1,
@@ -349,3 +373,96 @@ def test_prepare_edge_list_none_cost_returns_unit_weights():
         mask=mask_sp, cost_matrix=None, undirected=True, p=1, dtype=torch.float32, device=torch.device("cpu")
     )
     assert torch.allclose(cost_p_sum, torch.full((edge_index.shape[1],), 2.0))
+
+
+def test_gradnet_export_and_from_config_roundtrip():
+    mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+    adj0 = torch.tensor([[0.0, 0.5], [0.5, 0.0]])
+    cost = torch.ones((2, 2))
+
+    gn = GradNet(
+        num_nodes=2,
+        budget=1.0,
+        mask=mask,
+        adj0=adj0,
+        delta_sign="nonnegative",
+        final_sign="nonnegative",
+        undirected=True,
+        rand_init_weights=False,
+        use_budget_up=True,
+        cost_matrix=cost,
+        cost_aggr_norm=1,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    config = gn.export_config()
+    gn_rebuilt = GradNet.from_config(config)
+
+    assert gn_rebuilt.num_nodes == gn.num_nodes
+    assert math.isclose(gn_rebuilt.budget, gn.budget)
+    assert gn_rebuilt.delta_sign == gn.delta_sign
+    assert gn_rebuilt.final_sign == gn.final_sign
+    assert gn_rebuilt.undirected == gn.undirected
+    assert gn_rebuilt.use_budget_up == gn.use_budget_up
+    assert gn_rebuilt.cost_aggr_norm == gn.cost_aggr_norm
+    assert torch.allclose(gn_rebuilt.mask, gn.mask)
+    assert torch.allclose(gn_rebuilt.adj0, gn.adj0)
+    assert torch.allclose(gn_rebuilt.cost_matrix, gn.cost_matrix)
+
+
+def test_gradnet_from_checkpoint_roundtrip(tmp_path):
+    pytest.importorskip("pytorch_lightning")
+
+    mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]], dtype=torch.float32)
+    cost = torch.ones((2, 2), dtype=torch.float32)
+
+    gn = GradNet(
+        num_nodes=2,
+        budget=1.0,
+        mask=mask,
+        adj0=torch.zeros((2, 2), dtype=torch.float32),
+        delta_sign="nonnegative",
+        final_sign="nonnegative",
+        undirected=True,
+        rand_init_weights=False,
+        use_budget_up=True,
+        cost_matrix=cost,
+        cost_aggr_norm=1,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    def loss_fn(model: GradNet):
+        A = model()
+        loss = (A ** 2).mean()
+        return loss, {"adj_sum": A.sum()}
+
+    ckpt_dir = tmp_path / "ckpt"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    trainer, best_ckpt = fit(
+        gn=gn,
+        loss_fn=loss_fn,
+        num_updates=2,
+        optim_cls=torch.optim.SGD,
+        optim_kwargs={"lr": 0.1},
+        enable_checkpointing=True,
+        checkpoint_dir=str(ckpt_dir),
+        logger=False,
+        accelerator="cpu",
+    )
+
+    assert isinstance(best_ckpt, str) and os.path.exists(best_ckpt)
+
+    orig_state = {k: v.detach().clone() for k, v in gn.state_dict().items()}
+
+    reloaded = GradNet.from_checkpoint(best_ckpt)
+
+    for key, value in orig_state.items():
+        assert torch.allclose(reloaded.state_dict()[key], value)
+
+    config = trainer.lightning_module.hparams.get("gradnet_config")
+    assert config is not None
+    assert config["num_nodes"] == gn.num_nodes
+    assert torch.allclose(config["mask"], gn.mask.cpu())

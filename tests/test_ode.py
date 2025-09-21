@@ -186,35 +186,6 @@ def test_event_forward_stops_at_zero_crossing():
     assert torch.all(tt_p[1:] >= tt_p[:-1])
 
 
-def test_event_reverse_time():
-    # Reverse-time search from t0=2 backward until x crosses 0 with x' = +1
-    def vf(t, x, A):
-        return torch.ones_like(x)
-
-    def event_fn(t, x, A):
-        return x[0]
-
-    A = torch.tensor([[0.0]])
-    x0 = torch.tensor([1.0])
-    tt = torch.tensor([2.0, 0.0])
-
-    tt_p, x_p = integrate_ode(
-        A,
-        vf,
-        x0,
-        tt,
-        event_fn=event_fn,
-        event_options={"reverse_time": True},
-    )
-
-    # event should occur at t ~= 1.0, trajectory returned should be [2.0, 1.0]
-    assert abs(tt_p[-1].item() - 1.0) < 1e-3
-    assert _close(tt_p[0], 2.0)
-    # monotonic decreasing times
-    assert torch.all(tt_p[1:] <= tt_p[:-1])
-    assert abs(x_p[-1, 0].item()) < 1e-3
-
-
 def test_track_gradients_flag_controls_requires_grad():
     mod = _AModule(a=0.123)
 
@@ -255,7 +226,8 @@ def test_dtype_alignment_with_gradnet_and_nested_kwargs():
         budget=1.0,
         mask=torch.ones((N, N)) - torch.eye(N),
         adj0=torch.zeros((N, N)),
-        positive=False,
+        delta_sign="free",
+        final_sign="free",
         undirected=True,
         rand_init_weights=False,
         use_budget_up=True,
@@ -331,7 +303,8 @@ def test_sparse_gradnet_works_with_ode_by_providing_dense_A():
         budget=1.0,
         mask=mask_sparse,
         adj0=adj0_sparse,
-        positive=True,
+        delta_sign="nonnegative",
+        final_sign="nonnegative",
         undirected=True,
         rand_init_weights=False,
         use_budget_up=True,

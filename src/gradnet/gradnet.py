@@ -73,7 +73,7 @@ def normalize(matrix: torch.Tensor,
     return matrix * scale
 
 
-def positivize(matrix: torch.Tensor) -> torch.Tensor:
+def positivize(matrix: torch.Tensor, q: int=1, eps: float=1e-10) -> torch.Tensor:
     """Map unconstrained entries to nonnegative values via squaring.
 
     Args:
@@ -82,7 +82,7 @@ def positivize(matrix: torch.Tensor) -> torch.Tensor:
     Returns:
       torch.Tensor: Elementwise square of ``matrix``.
     """
-    return matrix**2
+    return (matrix**2+eps**q)**(1/q) - eps
 
 
 def symmetrize(matrix: torch.Tensor) -> torch.Tensor:
@@ -117,8 +117,8 @@ class DenseParameterization(nn.Module):
         0 for inactive). Nonzero diagonal entries are allowed but typically
         masked out by users.
       cost_matrix (torch.Tensor): Per-entry cost tensor for the normalization.
-      positive (bool, optional): If ``True``, enforce nonnegativity via
-        :func:`positivize`.
+      delta_sign (str, optional): Sign constraint for the perturbation. One of
+        ``{"free", "nonnegative", "nonpositive"}``.
       undirected (bool, optional): If ``True``, symmetrize before
         masking/normalizing.
       use_budget_up (bool, optional): If ``True``, always scale up to the
@@ -135,7 +135,7 @@ class DenseParameterization(nn.Module):
                  mask: torch.Tensor,
                  cost_matrix: torch.Tensor,
                  *,
-                 positive: bool = True,
+                 delta_sign: str = "nonnegative",
                  undirected: bool = True,
                  use_budget_up: bool = False,
                  cost_aggr_norm: int = 1,
@@ -144,7 +144,11 @@ class DenseParameterization(nn.Module):
 
         self.num_nodes = int(num_nodes)
         self.budget = float(budget)
-        self.positive = bool(positive)
+        allowed_signs = {"free", "nonnegative", "nonpositive"}
+        ds = str(delta_sign).lower()
+        if ds not in allowed_signs:
+            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+        self.delta_sign = ds
         self.undirected = bool(undirected)
         self.use_budget_up = bool(use_budget_up)
         self.cost_aggr_norm = int(cost_aggr_norm)
@@ -178,9 +182,13 @@ class DenseParameterization(nn.Module):
         except Exception:
             a = 1.0 if bool(rand_init_weights) else 0.0
         a = max(0.0, min(1.0, a))
-        ones = torch.ones(shape, device=self.mask.device, dtype=self.mask.dtype)
+        if use_budget_up: 
+            unif = torch.ones(shape, device=self.mask.device, dtype=self.mask.dtype)
+        else:
+            unif = torch.zeros(shape, device=self.mask.device, dtype=self.mask.dtype)
         rnd = torch.rand(shape, device=self.mask.device, dtype=self.mask.dtype)
-        delta0 = a * ones + (1.0 - a) * rnd
+        # Reverse semantics so a controls randomness: a=1 -> random, a=0 -> ones
+        delta0 = (1.0 - a) * unif + a * rnd
         self.delta_adj_raw = nn.Parameter(delta0, requires_grad=True)
 
         # Normalize initial scale for stability
@@ -197,7 +205,7 @@ class DenseParameterization(nn.Module):
 
     def extra_repr(self) -> str:
         return (f"num_nodes={self.num_nodes}, budget={self.budget}, "
-                f"positive={self.positive}, undirected={self.undirected}, "
+                f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
                 f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
                 f"dtype={self.dtype}, device={self.device}")
 
@@ -261,8 +269,10 @@ class DenseParameterization(nn.Module):
         if self.undirected:
             delta = symmetrize(delta)
 
-        if self.positive:
-            delta = positivize(delta)
+        if self.delta_sign == "nonnegative":
+            delta = positivize(delta, q=2)
+        elif self.delta_sign == "nonpositive":
+            delta = -positivize(delta, q=2)
 
         delta = delta * self.mask
         
@@ -288,7 +298,7 @@ class SparseParameterization(nn.Module):
         budget: float,
         edge_index: torch.Tensor,  # [2, E]
         cost_p_sum: torch.Tensor,  # [E]
-        positive: bool = True,
+        delta_sign: str = "nonnegative",
         undirected: bool = True,
         use_budget_up: bool = False,
         cost_aggr_norm: int = 1,
@@ -307,8 +317,8 @@ class SparseParameterization(nn.Module):
             containing, for each edge, the sum of costs to the power ``p``
             used in the normalization. For undirected graphs this is typically
             ``|c_ij|^p + |c_ji|^p``; for directed, ``|c_ij|^p``.
-          positive (bool, optional): If ``True``, enforce nonnegativity by
-            squaring the raw edge weights.
+          delta_sign (str, optional): Sign constraint for the perturbation.
+            One of ``{"free", "nonnegative", "nonpositive"}``.
           undirected (bool, optional): If ``True``, mirror ``(i, j)`` entries
             to ``(j, i)`` when building the sparse matrix.
           use_budget_up (bool, optional): If ``True``, always scale up to the
@@ -324,7 +334,11 @@ class SparseParameterization(nn.Module):
         super().__init__()
         self.num_nodes = int(num_nodes)
         self.budget = float(budget)
-        self.positive = bool(positive)
+        allowed_signs = {"free", "nonnegative", "nonpositive"}
+        ds = str(delta_sign).lower()
+        if ds not in allowed_signs:
+            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+        self.delta_sign = ds
         self.undirected = bool(undirected)
         self.use_budget_up = bool(use_budget_up)
         self.cost_aggr_norm = int(cost_aggr_norm)
@@ -338,9 +352,13 @@ class SparseParameterization(nn.Module):
         except Exception:
             a = 1.0 if bool(rand_init_weights) else 0.0
         a = max(0.0, min(1.0, a))
-        ones = torch.ones((E,), device=device, dtype=dtype)
+        if use_budget_up: 
+            unif = torch.ones((E,), device=device, dtype=dtype)
+        else:
+            unif = torch.zerps((E,), device=device, dtype=dtype)
         rnd = torch.rand((E,), device=device, dtype=dtype)
-        w0 = a * ones + (1.0 - a) * rnd
+        # Reverse semantics so a controls randomness: a=1 -> random, a=0 -> ones
+        w0 = (1.0 - a) * unif + a * rnd
         self.delta_adj_raw = nn.Parameter(w0, requires_grad=True)
 
     @property
@@ -354,7 +372,7 @@ class SparseParameterization(nn.Module):
     def extra_repr(self) -> str:
         E = int(self.edge_index.shape[1])
         return (f"num_nodes={self.num_nodes}, edges={E}, budget={self.budget}, "
-                f"positive={self.positive}, undirected={self.undirected}, "
+                f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
                 f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
                 f"dtype={self.dtype}, device={self.device}")
 
@@ -398,8 +416,10 @@ class SparseParameterization(nn.Module):
         """
         w = self.delta_adj_raw
 
-        if self.positive:
-            w = positivize(w)
+        if self.delta_sign == "nonnegative":
+            w = positivize(w, q=2)
+        elif self.delta_sign == "nonpositive":
+            w = -positivize(w, q=2)
 
         p = max(1, int(self.cost_aggr_norm))
         eps = w.new_tensor(1e-8)
@@ -435,7 +455,8 @@ class GradNet(nn.Module):
                  budget: float,
                  mask = None,
                  adj0 = None,
-                 positive: bool = True,
+                 delta_sign: str = "nonnegative",
+                 final_sign: str = "nonnegative",
                  undirected: bool = True,
                  rand_init_weights: Union[bool, float] = True,
                  use_budget_up: bool = True,
@@ -455,15 +476,16 @@ class GradNet(nn.Module):
             all-ones off-diagonal.
           adj0 (torch.Tensor | None, optional): Base adjacency. If ``None``,
             uses zeros.
-          positive (bool, optional): If ``True``, enforce nonnegativity of
-            ``delta`` via squaring.
+          delta_sign (str, optional): Sign constraint for ``delta``. One of
+            ``{"free", "nonnegative", "nonpositive"}``.
+          final_sign (str, optional): Sign constraint applied to the returned
+            adjacency. One of ``{"free", "nonnegative", "nonpositive"}``.
           undirected (bool, optional): If ``True``, symmetrize ``delta`` and
             expect a symmetric cost matrix.
           rand_init_weights (bool | float, optional): Initialization mix
             coefficient ``a``. Cast to float and clamped to ``[0,1]``.
-            ``a = 1.0`` or ``True`` yields uniform ones; ``a = 0.0`` or
-            ``False`` yields fully random ``U(0,1)``. Intermediate values use
-            ``a * 1 + (1 - a) * U(0,1)``.
+            ``a = 1.0`` or ``True`` yields fully random ``U(0,1)``; ``a = 0.0`` or
+            ``False`` yields uniform ones. Intermediate values yield interpolation.
           use_budget_up (bool, optional): If ``True``, always scale up to the
             budget.
           cost_matrix (torch.Tensor | None, optional): Per-entry costs for
@@ -486,15 +508,32 @@ class GradNet(nn.Module):
         dev = torch.device(device) if device is not None else (
             infer_from.device if infer_from is not None else torch.device("cpu")
         )
-        if dtype is not None:
-            dt = dtype if isinstance(dtype, torch.dtype) else torch.float32
-        else:
+        if dtype is None:
             dt = infer_from.dtype if infer_from is not None else torch.get_default_dtype()
+        else:
+            if isinstance(dtype, torch.dtype):
+                dt = dtype
+            elif isinstance(dtype, str):
+                key = dtype.split(".")[-1].lower()
+                candidate = getattr(torch, key, None)
+                if not isinstance(candidate, torch.dtype):
+                    raise ValueError(f"Unsupported dtype string '{dtype}'")
+                dt = candidate
+            else:
+                raise TypeError("dtype must be a torch.dtype, str, or None")
 
         # ---- Public config -----------------------------------------------------
         self.num_nodes = int(num_nodes)
         self.budget = float(budget)
-        self.positive = bool(positive)
+        allowed_signs = {"free", "nonnegative", "nonpositive"}
+        ds = str(delta_sign).lower()
+        fs = str(final_sign).lower()
+        if ds not in allowed_signs:
+            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+        if fs not in allowed_signs:
+            raise ValueError(f"final_sign must be one of {sorted(allowed_signs)}; got {final_sign!r}")
+        self.delta_sign = ds
+        self.final_sign = fs
         self.undirected = bool(undirected)
         self.use_budget_up = bool(use_budget_up)
         self.cost_aggr_norm = int(cost_aggr_norm)
@@ -561,7 +600,7 @@ class GradNet(nn.Module):
                 budget=self.budget,
                 edge_index=edge_index,
                 cost_p_sum=cost_p_sum,
-                positive=self.positive,
+                delta_sign=self.delta_sign,
                 undirected=self.undirected,
                 use_budget_up=self.use_budget_up,
                 cost_aggr_norm=self.cost_aggr_norm,
@@ -579,7 +618,7 @@ class GradNet(nn.Module):
                 budget=self.budget,
                 mask=self.mask,
                 cost_matrix=self.cost_matrix,
-                positive=self.positive,
+                delta_sign=self.delta_sign,
                 undirected=self.undirected,
                 use_budget_up=self.use_budget_up,
                 cost_aggr_norm=self.cost_aggr_norm,
@@ -598,9 +637,45 @@ class GradNet(nn.Module):
 
     def extra_repr(self) -> str:
         return (f"num_nodes={self.num_nodes}, budget={self.budget}, "
-                f"positive={self.positive}, undirected={self.undirected}, "
+                f"delta_sign={self.delta_sign!r}, final_sign={self.final_sign!r}, undirected={self.undirected}, "
                 f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
                 f"dtype={self.dtype}, device={self.device}")
+
+    # --------- Minimal serialization helpers ----------------------------------
+    def export_config(self) -> dict:
+        """Return a CPU-side configuration snapshot for later reconstruction."""
+        def _clone_cpu(x):
+            if isinstance(x, torch.Tensor):
+                return x.detach().clone().cpu()
+            return x
+
+        return {
+            "num_nodes": self.num_nodes,
+            "budget": self.budget,
+            "mask": _clone_cpu(self.mask),
+            "adj0": _clone_cpu(self.adj0),
+            "delta_sign": self.delta_sign,
+            "final_sign": self.final_sign,
+            "undirected": self.undirected,
+            "use_budget_up": self.use_budget_up,
+            "cost_matrix": _clone_cpu(self.cost_matrix),
+            "cost_aggr_norm": self.cost_aggr_norm,
+        }
+
+    @classmethod
+    def from_config(cls, config: dict) -> "GradNet":
+        """Rebuild a ``GradNet`` from :meth:`export_config` output."""
+        cfg = dict(config)
+        mask = cfg.pop("mask", None)
+        adj0 = cfg.pop("adj0", None)
+        cost_matrix = cfg.pop("cost_matrix", None)
+        return cls(
+            mask=mask,
+            adj0=adj0,
+            cost_matrix=cost_matrix,
+            rand_init_weights=False,
+            **cfg,
+        )
 
     # --------- State management passthroughs -----------------------------------
     @torch.no_grad()
@@ -629,14 +704,73 @@ class GradNet(nn.Module):
         # Handle dense/sparse combinations
         if isinstance(A0, torch.Tensor) and A0.layout != torch.strided:
             if isinstance(delta, torch.Tensor) and delta.layout != torch.strided:
-                return (A0.coalesce() + delta.coalesce()).coalesce()
+                adj = (A0.coalesce() + delta.coalesce()).coalesce()
             else:
-                return A0.to_dense() + delta
+                adj = A0.to_dense() + delta
         else:
             if isinstance(delta, torch.Tensor) and delta.layout != torch.strided:
-                return A0 + delta.to_dense()
+                adj = A0 + delta.to_dense()
             else:
-                return A0 + delta
+                adj = A0 + delta
+
+        if self.final_sign != "free":
+            if isinstance(adj, torch.Tensor) and adj.layout != torch.strided:
+                adj = adj.coalesce()
+                values = positivize(adj.values(), q=2)
+                if self.final_sign == "nonpositive":
+                    values = -values
+                adj = torch.sparse_coo_tensor(
+                    adj.indices(),
+                    values,
+                    adj.shape,
+                    device=adj.device,
+                    dtype=values.dtype,
+                ).coalesce()
+            else:
+                adj = positivize(adj, q=2)
+                if self.final_sign == "nonpositive":
+                    adj = -adj
+
+        return adj
+
+    def to_numpy(self):
+        """Return the full adjacency as a NumPy array on CPU."""
+        A = self()
+        if isinstance(A, torch.Tensor) and A.layout != torch.strided:
+            return A.detach().to_dense().cpu().numpy()
+        else:
+            return A.detach().cpu().numpy()
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        checkpoint_path: str,
+        *,
+        map_location: Optional[Union[str, torch.device]] = "cpu",
+    ) -> "GradNet":
+        """Load a ``GradNet`` from a PyTorch Lightning checkpoint. Checkpoints are stored by fit."""
+        ckpt = torch.load(checkpoint_path, map_location=map_location)
+        config = ckpt.get("hyper_parameters", {}).get("gradnet_config")
+        if config is None:
+            raise ValueError("Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning.")
+
+        model = cls.from_config(config)
+
+        from .trainer import GradNetLightning  # lazy import to avoid cycles
+
+        def _noop_loss_fn(_gn: "GradNet", **_):
+            return torch.zeros((), device=model.device, dtype=model.dtype)
+
+        module = GradNetLightning.load_from_checkpoint(
+            checkpoint_path,
+            map_location=map_location,
+            gn=model,
+            loss_fn=_noop_loss_fn,
+            loss_kwargs={},
+            optim_cls=torch.optim.SGD,
+            optim_kwargs={"lr": 0.0},
+        )
+        return module.gn
 
     # --------------------- Internal helpers -----------------------------------
     def _prepare_edge_list(
@@ -771,6 +905,3 @@ def _gather_sparse_values(cm: torch.Tensor, ri: torch.Tensor, rj: torch.Tensor, 
     if sk.numel() > 0:
         out[match] = svals[pos[match]]
     return out
-
-
-#TODO figure out saving loading

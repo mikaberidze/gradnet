@@ -4,7 +4,7 @@ import numpy as np
 import time
 from functools import wraps
 import torch.linalg as LA
-from typing import Mapping
+from typing import Mapping, Optional
 
 
 
@@ -117,6 +117,86 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
                 w = float(adj[i, j])
                 if abs(w) > pruning_threshold and (m[i, j] != 0):
                     net.add_edge(i, j, weight=w)
+    return net
+
+
+def plot_adjacency_heatmap(
+    gn,
+    *,
+    ax=None,
+    title: str = None,
+    xlabel: str = "$j$",
+    ylabel: str = "$i$",
+    cbar_label: str = "$A_{ij}$",
+    imshow_kwargs: Optional[dict] = None,
+):
+    """Plot an adjacency matrix as a heatmap.
+
+    - If ``ax`` is ``None``, creates a new figure and axes.
+    - The colorbar attaches to ``ax.figure``.
+    - Accepts a GradNet-like object (callable with no args), a Torch tensor,
+      or any array-like representing an adjacency.
+    """
+    import matplotlib.pyplot as plt
+    
+    # Resolve input to a NumPy array adjacency
+    if isinstance(gn, torch.Tensor):
+        data = gn.detach().cpu().numpy()
+    elif callable(gn):  # GradNet or similar returning adjacency via __call__
+        A = gn()
+        data = A.detach().cpu().numpy() if isinstance(A, torch.Tensor) else np.asarray(A)
+    else:
+        data = np.asarray(gn)
+    imshow_kwargs = {} if imshow_kwargs is None else dict(imshow_kwargs)
+
+    if ax is None:
+        fig, ax = plt.subplots()
+    else:
+        fig = ax.figure
+
+    im = ax.imshow(data, **imshow_kwargs)
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    ax.set(title=title, xlabel=xlabel, ylabel=ylabel)
+    return im
+
+
+def plot_graph(
+    gn,
+    *,
+    ax=None,
+    pruning_threshold: float = 1e-8,
+    layout: str = "spring",
+    node_size: float = 15.0,
+    edgecolors: str = "black",
+    draw_kwargs: Optional[dict] = None,
+):
+    """Draw the NetworkX representation of ``gn``.
+
+    - If ``ax`` is ``None``, creates a new figure and axes.
+    - Uses ``to_networkx`` and derives edge widths from weights.
+    - ``layout`` can be a ``networkx.draw_*`` name or a callable.
+    """
+    import matplotlib.pyplot as plt
+    import networkx as nx
+
+    if ax is None:
+        _, ax = plt.subplots()
+
+    net = to_networkx(gn, pruning_threshold=pruning_threshold)
+    edge_weights = list(nx.get_edge_attributes(net, "weight").values())
+    if not edge_weights:
+        edge_weights = None  # fallback to defaults when graph has no edges
+
+    draw_kwargs = {} if draw_kwargs is None else dict(draw_kwargs)
+    draw_kwargs.setdefault("nodelist", sorted(net.nodes()))
+    draw_kwargs.setdefault("node_size", node_size)
+    draw_kwargs.setdefault("width", edge_weights)
+    draw_kwargs.setdefault("edgecolors", edgecolors)
+    draw_fn = getattr(nx, f"draw_{layout}") if isinstance(layout, str) else layout
+    if not callable(draw_fn):
+        raise ValueError(f"layout '{layout}' is not callable")
+
+    draw_fn(net, ax=ax, **draw_kwargs)
     return net
 
 
