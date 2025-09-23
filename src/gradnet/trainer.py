@@ -14,7 +14,17 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase
 from pytorch_lightning.callbacks import Callback
-from tqdm.auto import tqdm
+try:  # prefer notebook progress bar when the stack supports it
+    from tqdm import TqdmWarning  # type: ignore[attr-defined]
+except (ImportError, AttributeError):
+    TqdmWarning = Warning  # fallback when tqdm lacks TqdmWarning
+
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=TqdmWarning)
+    try:
+        from tqdm.auto import tqdm
+    except Exception:
+        from tqdm import tqdm  # noqa: F401  # CLI fallback without warnings
 from .utils import _to_like_struct
 from .gradnet import GradNet
 import warnings
