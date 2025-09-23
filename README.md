@@ -1,56 +1,92 @@
-# gradnet
+# GradNet
 
-Trainable graph adjacency parameterizations with dense and sparse outputs, plus
-ODE integration utilities and a lightweight PyTorch Lightning training loop.
+GradNet provides differentiable parameterizations of graph adjacency matrices with explicit budget and structure constraints. It pairs these parameterizations with ODE solvers and a lightweight PyTorch Lightning training loop so you can prototype network optimization problems quickly.
 
-Features
-- GradNet: learn constrained adjacency deltas (dense or sparse) with simple projections
-- ODE: integrate dynamics that depend on an adjacency via torchdiffeq
-- Trainer: minimal Lightning wrapper to optimize GradNet with custom losses
+## Highlights
+- Learn dense or sparse adjacency updates with norm, sign, and symmetry constraints.
+- Projected parameterizations that stay differentiable and GPU friendly.
+- Torchdiffeq-backed integration utilities for graph-driven dynamical systems.
+- Minimal Lightning trainer that wraps custom loss functions in just a few lines.
 
-Requirements
-- Python >= 3.10
-- Dependencies: torch, numpy, networkx, pytorch-lightning, tqdm, torchdiffeq
+## Installation
+Install the released package from PyPI:
 
-Install
-- From source (editable):
-  pip install -e .
+```bash
+pip install gradnet
+```
 
-Quickstart
-- Learn a dense adjacency
-  ```python
-  from gradnet import GradNet
-  import torch
-  N = 10
-  model = GradNet(num_nodes=N, budget=1.0, matrix_encoding="dense")
-  A = model()  # (N, N) dense tensor
-  ```
+To work off the latest sources instead, clone the repository and install in editable mode:
 
-- Integrate an ODE using A
-  ```python
-  from gradnet import integrate_ode
-  def vf(t, x, A):
-      return A @ x
-  x0 = torch.randn(N)
-  tt = torch.linspace(0, 1, 11)
-  t_out, x_out = integrate_ode(model, vf, x0, tt)
-  ```
+```bash
+pip install -e .
+```
 
-- Train with a custom loss
-  ```python
-  from gradnet import fit, GradNet
-  def loss_fn(m: GradNet):
-      A = m()
-      # toy objective: promote small weights
-      loss = (A.abs()).mean()
-      return loss
-  fit(gradnet=model, loss_fn=loss_fn, num_updates=100)
-  ```
+GradNet targets Python 3.10+ and depends on PyTorch, PyTorch Lightning, torchdiffeq, NetworkX, NumPy, and tqdm (installed automatically by the command above).
 
-Modules
-- gradnet.GradNet: main model exposing dense/sparse encodings and NetworkX export
-- gradnet.integrate_ode: torchdiffeq wrapper with optional adjoint and events
-- gradnet.fit: Lightning loop with progress and optional checkpoints
+## Quickstart
 
-Examples
-- See `examples/` for starter notebooks and scripts.
+### Learn a constrained adjacency
+```python
+import torch
+from gradnet import GradNet
+
+num_nodes = 10
+model = GradNet(
+    num_nodes=num_nodes,
+    budget=1.0,
+    undirected=True,
+)
+
+adjacency = model()  # full (num_nodes, num_nodes) tensor
+```
+Pass a sparse COO mask via the `mask` argument to switch to the sparse backend and optimize only selected edges.
+
+### Integrate a graph-driven ODE
+```python
+from gradnet import integrate_ode
+
+# simple linear dynamics \dot{x} = Ax
+
+def vector_field(t, x, A):
+    return A @ x
+
+x0 = torch.randn(num_nodes)
+t_grid = torch.linspace(0.0, 1.0, 51)
+sol_t, sol_x = integrate_ode(model, vector_field, x0, t_grid)
+```
+
+### Optimize with your own loss
+```python
+from gradnet import GradNet, fit
+
+# encourage sparse, small-magnitude updates
+def loss_fn(g: GradNet):
+    delta = g.get_delta_adj()
+    return delta.abs().mean()
+
+fit(gradnet=model, loss_fn=loss_fn, num_updates=200, learning_rate=1e-2)
+```
+The trainer handles optimizer setup, logging, and checkpointing while you focus on defining the objective.
+
+## Modules at a glance
+- `gradnet.GradNet`: wraps dense and sparse parameterizations, supports NetworkX export, masking, and custom costs.
+- `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
+- `gradnet.fit`: PyTorch Lightning loop that optimizes a `GradNet` using user-supplied loss functions.
+- `gradnet.utils`: helpers for masks, costs, and conversions between SciPy/NetworkX formats.
+
+## Documentation
+Full API documentation, tutorials, and background material live at [gradnet.readthedocs.io](https://gradnet.readthedocs.io/).
+
+## Examples
+Interactive notebooks that reproduce common network optimization experiments are available in `examples/`:
+- `1_λ₂_algebraic_connectivity.ipynb`
+- `2_karate_club.ipynb`
+- `2_kuramoto.ipynb`
+
+## Development
+1. Install the project in editable mode: `pip install -e .`
+2. Install any additional tooling you need for tests or docs (e.g. `pytest`, `sphinx`).
+3. Run the test suite with `pytest` and build docs with `sphinx-build -b html docs/source docs/build/html` before submitting changes.
+
+## License
+GradNet is released under the BSD 3-Clause License. See `LICENSE` for details.

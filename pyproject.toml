@@ -8,7 +8,24 @@ version = "0.1.0"
 description = "Trainable graph adjacency parameterizations with ODE integration and Lightning training helpers."
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["graphs", "pytorch", "optimization", "ode", "lightning"]
+license = { file = "LICENSE" }
+authors = [
+  { name = "Guram Mikaberidze" },
+  { name = "Beso Mikaberidze" },
+  { name = "Dane Taylor" },
+]
+keywords = ["graphs", "networks", "dynamical systems", "pytorch", "optimization", "ode", "lightning"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: BSD 3-Clause 'New' or 'Revised' License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Framework :: PyTorch",
+]
 dependencies = [
   "torch>=2.0",
   "numpy>=1.21",
@@ -17,6 +34,11 @@ dependencies = [
   "tqdm>=4.64",
   "torchdiffeq>=0.2.3",
 ]
+
+[project.urls]
+Homepage = "https://mikaberidze.github.io/"
+Documentation = "https://gradnet.readthedocs.io/"
+Repository = "https://github.com/mikaberidze/gradnet"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gradnet"]
