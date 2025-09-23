@@ -5,9 +5,23 @@ that renders reliably on most environments.
 """
 
 from __future__ import annotations
+import base64
+import json
 import os
 import sys
 from pathlib import Path
+
+# Guard against autodoc typehints choking on mocked types by neutralising the
+# event handler up front.
+try:
+    from sphinx.ext.autodoc import typehints as _sphinx_typehints
+
+    def _noop_record_typehints(*args, **kwargs):  # type: ignore[override]
+        return None
+
+    _sphinx_typehints.record_typehints = _noop_record_typehints  # type: ignore[attr-defined]
+except Exception:
+    pass
 
 # Make package importable for autodoc (src layout), robust to CWD
 ROOT = Path(__file__).resolve().parents[2]
@@ -198,6 +212,32 @@ html_css_files = [
     'custom.css',
 ]
 
+
+def _write_notebook_download_manifest() -> None:
+    """Embed tutorial notebooks as base64 for reliable client-side downloads."""
+    tutorials_dir = ROOT / 'examples'
+    manifest_path = Path(__file__).resolve().parent / '_static' / 'download_data.js'
+
+    manifest: dict[str, str] = {}
+    for nb_path in sorted(tutorials_dir.glob('*.ipynb')):
+        try:
+            encoded = base64.b64encode(nb_path.read_bytes()).decode('ascii')
+        except OSError:
+            continue
+        manifest[nb_path.name] = encoded
+
+    manifest_path.write_text(
+        'window.GRADNET_NOTEBOOKS = ' + json.dumps(manifest) + ';\n'
+    )
+
+
+_write_notebook_download_manifest()
+
+html_js_files = [
+    'download_data.js',
+    'download.js',
+]
+
 # Cross-links to external projects
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3', None),
@@ -228,7 +268,11 @@ def _link_example_notebooks():
     pattern = re.compile(r"^\d+_.+\.ipynb$")
 
     # Collect desired source notebooks
-    desired = {nb.name: nb for nb in src_dir.glob('*.ipynb') if pattern.match(nb.name)}
+    desired = {
+        nb.name: nb
+        for nb in src_dir.glob('*.ipynb')
+        if pattern.match(nb.name) and not nb.name.startswith('#')
+    }
 
     # Clean up stale or non-conforming files in destination
     for item in dst_dir.glob('*.ipynb'):
@@ -273,4 +317,5 @@ def setup(app):  # noqa: D401
             _app.disconnect('autodoc-process-signature', record_typehints)
         except Exception:
             pass
+    _disconnect_typehints(app)
     app.connect('builder-inited', _disconnect_typehints)

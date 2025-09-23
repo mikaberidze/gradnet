@@ -8,7 +8,7 @@ from typing import Mapping, Optional
 
 
 
-def random_seed(seed):
+def _random_seed(seed):
     torch.use_deterministic_algorithms(True)
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -17,7 +17,7 @@ def random_seed(seed):
         torch.cuda.manual_seed(seed)
 
 
-def timeit(func):
+def _timeit(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         start = time.time()
@@ -29,6 +29,7 @@ def timeit(func):
 
 
 def prune_edges(del_adj: torch.Tensor, threshold: float) -> torch.Tensor:
+    """Prunes edges in a given adjacency tensor based on a threshold value."""
     norm = torch.abs(del_adj).sum()
     pruned = torch.where(torch.abs(del_adj) < threshold, torch.zeros_like(del_adj), del_adj)
     pruned_norm = torch.abs(pruned).sum()
@@ -38,14 +39,14 @@ def prune_edges(del_adj: torch.Tensor, threshold: float) -> torch.Tensor:
 
 
 def positions_to_distance_matrix(positions: torch.Tensor, norm: float = 2.0):
-    """Compute the pairwise distance matrix from node positions."""
+    """Compute the pairwise distance matrix from node positions using a given norm."""
     diff = positions.unsqueeze(1) - positions.unsqueeze(0)
     return LA.vector_norm(diff, ord=norm, dim=-1)
 
 
 def reg_loss(del_adj: torch.Tensor) -> torch.Tensor:
     """
-    Regularization loss for the delta adjacency.
+    Regularization loss for sparsifying the delta adjacency.
     Computes sum(sigmoid(abs(del_adj))).
     """
     # f = lambda x: torch.sigmoid(x)
@@ -200,7 +201,7 @@ def plot_graph(
     return net
 
 
-def shortest_path(A: torch.Tensor, pair="full"):
+def _shortest_path(A: torch.Tensor, pair="full"):
     """Compute shortest path distances with SciPy and preserve Torch grads.
 
     - Accepts an adjacency tensor ``A`` (dense or sparse PyTorch).

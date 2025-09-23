@@ -64,44 +64,42 @@ class _OneItem(Dataset):
 class GradNetLightning(pl.LightningModule):
     """LightningModule wrapper around a ``GradNet`` and a user loss.
 
-    This module performs manual optimization: it calls ``loss_fn`` to obtain
+    This module performs manual optimisation: it evaluates ``loss_fn`` to obtain
     a scalar loss (and optional metrics), applies gradient clipping (if
-    configured), steps the optimizer, optionally renormalizes the model
+    configured), steps the optimizer, optionally renormalises the model
     parameters, and logs metrics under ``monitor_key``.
 
     Parameters
     ----------
-    :param gn: The model to optimize. Typically a ``GradNet`` instance;
-        any ``nn.Module`` is accepted. If it defines ``renorm_params()``,
-        that method is called after each optimizer step when
-        ``post_step_renorm=True``.
-    :type gn: torch.nn.Module
-    :param loss_fn: Callable evaluated each step as
-        ``loss_fn(gn, **loss_kwargs)``. Must return a scalar loss
-        tensor, or ``(loss, metrics_dict)``.
-    :type loss_fn: LossFn
-    :param loss_kwargs: Keyword arguments forwarded to ``loss_fn`` on every
-        step. Mapped through ``utils._to_like_struct`` upstream to match the
-        model's device/dtype.
-    :type loss_kwargs: Mapping[str, Any] | None
-    :param optim_cls: Optimizer class to construct over ``gn.parameters()``.
-    :type optim_cls: type[torch.optim.Optimizer]
-    :param optim_kwargs: Keyword arguments for ``optim_cls`` (e.g., ``{"lr": 1e-2}``).
-    :type optim_kwargs: dict
-    :param sched_cls: Optional LR scheduler class to wrap the optimizer.
-    :type sched_cls: type | None
-    :param sched_kwargs: Keyword arguments for ``sched_cls``.
-    :type sched_kwargs: dict | None
-    :param grad_clip_val: Gradient-norm clipping value; ``0.0`` disables clipping.
-    :type grad_clip_val: float
-    :param post_step_renorm: Call ``gn.renorm_params()`` after each step
-        if available.
-    :type post_step_renorm: bool
-    :param monitor_key: Metric name under which the primary loss is logged.
-    :type monitor_key: str
-    :param compile_model: Attempt to wrap the model with ``torch.compile`` in
-        ``setup``; continue uncompiled on failure.
-    :type compile_model: bool
+    gn : torch.nn.Module
+        Model to optimise. Typically a :class:`gradnet.GradNet`; any ``nn.Module``
+        is accepted. If the module exposes ``renorm_params()``, that method is
+        invoked after each optimizer step when ``post_step_renorm`` is ``True``.
+    loss_fn : LossFn
+        Callable evaluated on every optimisation step as
+        ``loss_fn(gn, **loss_kwargs)``. Must return either a scalar loss tensor or
+        a ``(loss, metrics_dict)`` tuple.
+    loss_kwargs : Mapping[str, Any] | None, optional
+        Extra keyword arguments forwarded to ``loss_fn`` and converted via
+        :func:`gradnet.utils._to_like_struct` so tensors follow ``gn``'s device
+        and dtype.
+    optim_cls : type[torch.optim.Optimizer]
+        Optimiser class instantiated over ``gn.parameters()``.
+    optim_kwargs : dict, optional
+        Arguments passed to ``optim_cls`` (e.g., ``{"lr": 1e-2}``).
+    sched_cls : type | None, optional
+        Optional LR scheduler class applied on top of the optimiser.
+    sched_kwargs : dict | None, optional
+        Keyword arguments for ``sched_cls``.
+    grad_clip_val : float, optional
+        Gradient-norm clipping threshold. ``0.0`` disables clipping.
+    post_step_renorm : bool, optional
+        Call ``gn.renorm_params()`` after each optimiser step when available.
+    monitor_key : str, optional
+        Metric name under which the primary loss is logged.
+    compile_model : bool, optional
+        Attempt to wrap the model with :func:`torch.compile` during ``setup``;
+        fall back silently when compilation fails.
     """
     def __init__(
         self,
@@ -257,106 +255,94 @@ def fit(
     deterministic: Optional[Union[bool, str]] = None,
     verbose: bool = True,
 ):
-    """Optimize a GradNet object for a fixed number of updates using
-    adapted PyTorch Lightning.
+    """Optimise a :class:`gradnet.GradNet` for a fixed number of updates.
 
-    Each update calls:
-    ``loss_fn(gn, **loss_kwargs)`` to compute a scalar loss (and
-    optional metrics). One epoch corresponds to one optimizer update, so
-    ``num_updates`` equals the number of optimization steps.
+    One trainer epoch corresponds to a single optimiser step, so
+    ``num_updates`` equals the number of optimisation steps executed. Each step
+    evaluates ``loss_fn(gn, **loss_kwargs)`` and drives manual optimisation via
+    :class:`GradNetLightning`.
 
     Parameters
     ----------
-    :param gn: The network to optimize. Must be a ``GradNet`` instance.
-    :type gn: gradnet.GradNet
-    :param loss_fn: Callable invoked as ``loss_fn(gn, **loss_kwargs)``.
-        Must return either a scalar loss tensor or a tuple
-        ``(loss, metrics_dict)``, where ``metrics_dict`` maps metric names to
-        numbers or tensors. The main loss is logged under ``monitor``.
-    :type loss_fn: LossFn
-    :param loss_kwargs: Keyword arguments forwarded to ``loss_fn``. If a mapping
-        is provided, tensors/NumPy arrays inside are recursively moved/cast to
-        match ``gn``'s device/dtype via ``utils._to_like_struct``.
-    :type loss_kwargs: Mapping[str, Any] | None, optional
-    :param num_updates: Number of optimizer steps to run (epochs == updates).
-    :type num_updates: int
-    :param optim_cls: Optimizer class constructed as
-        ``optim_cls(gn.parameters(), **optim_kwargs)``. Typical choices are
-        from ``torch.optim`` (e.g., ``Adam``, ``SGD``).
-    :type optim_cls: type[torch.optim.Optimizer], optional
-    :param optim_kwargs: Keyword arguments for ``optim_cls`` (e.g., ``{"lr": 1e-2}``).
-        If ``None``, defaults to ``{"lr": 1e-2}``.
-    :type optim_kwargs: dict | None, optional
-    :param sched_cls: Optional LR scheduler class instantiated as
-        ``sched_cls(optimizer, **sched_kwargs)``. Common choices are from
-        ``torch.optim.lr_scheduler`` (e.g., ``StepLR``, ``ExponentialLR``).
-        Note: Schedulers that require a monitored metric (e.g.,
-        ``ReduceLROnPlateau``) are not configured with ``monitor`` here and may
-        need customization.
-    :type sched_cls: type | None, optional
-    :param sched_kwargs: Keyword arguments for ``sched_cls``.
-    :type sched_kwargs: dict | None, optional
-    :param precision: Forwarded to ``pl.Trainer(precision=...)``. Accepts an
-        ``int`` (e.g., ``32``) or a string such as ``"32-true"``,
-        ``"16-mixed"``, or ``"bf16-mixed"`` when supported by your setup.
-    :type precision: str | int, optional
-    :param accelerator: Forwarded to ``pl.Trainer(accelerator=...)`` (e.g.,
-        ``"auto"``, ``"cpu"``, ``"gpu"``, ``"mps"``), depending on your
-        Lightning version and hardware.
-    :type accelerator: str, optional
-    :param logger: Forwarded to ``pl.Trainer(logger=...)``. Can be ``True``/``False``
-        or a Lightning logger instance. For TensorBoard, pass
-        ``pytorch_lightning.loggers.TensorBoardLogger(...)``.
-    :type logger: LightningLoggerBase | bool | None, optional
-    :param enable_checkpointing: Whether to enable checkpointing. When ``True``,
-        a ``ModelCheckpoint`` callback is added using the options below.
-    :type enable_checkpointing: bool, optional
-    :param checkpoint_dir: Directory for checkpoints (``ModelCheckpoint.dirpath``).
-    :type checkpoint_dir: str | None, optional
-    :param monitor: Name of the logged metric to monitor for checkpointing and
-        main loss logging. The LightningModule logs the loss under this key.
-    :type monitor: str, optional
-    :param mode: Whether to minimize or maximize ``monitor`` when selecting the
-        best checkpoints (``"min"`` for losses, ``"max"`` for scores).
-    :type mode: str, optional
-    :param save_top_k: How many best checkpoints to keep.
-    :type save_top_k: int, optional
-    :param save_last: Whether to always save the last checkpoint.
-    :type save_last: bool, optional
-    :param callbacks: Additional ``pytorch_lightning.Callback`` instances to use.
-        A progress callback is always appended, and a ``ModelCheckpoint`` is
-        appended when ``enable_checkpointing=True``.
-    :type callbacks: list[pl.Callback] | None, optional
-    :param max_time: Training time limit forwarded to ``pl.Trainer(max_time=...)``.
-        Commonly a string like ``"DD:HH:MM:SS"`` (e.g., ``"00:01:00:00"`` for 1 hour),
-        but confirm accepted formats with your Lightning version.
-    :type max_time: str | None, optional
-    :param grad_clip_val: If ``> 0``, apply gradient-norm clipping before the
-        optimizer step.
-    :type grad_clip_val: float, optional
-    :param post_step_renorm: After each optimizer step, call
-        ``gn.renorm_params()`` if available.
-    :type post_step_renorm: bool, optional
-    :param compile_model: If ``True``, attempts ``torch.compile(gn)`` during
-        setup; on failure, logs a warning and continues uncompiled.
-    :type compile_model: bool, optional
-    :param seed: If provided, calls ``pl.seed_everything(seed, workers=True)``.
-    :type seed: int | None, optional
-    :param deterministic: If provided, calls
-        ``torch.use_deterministic_algorithms(bool(deterministic))``.
-    :type deterministic: bool | str | None, optional
-    :raises TypeError: If ``loss_kwargs`` is not a mapping (and not ``None``).
-    :return: Tuple ``(trainer, best_ckpt_path)`` where ``trainer`` is the
-        instantiated ``pl.Trainer`` and ``best_ckpt_path`` is the path to the
-        best checkpoint (or ``None`` when checkpointing is disabled).
-    :rtype: tuple[pl.Trainer, str | None]
+    gn : GradNet
+        Network to optimise.
+    loss_fn : LossFn
+        Callable invoked as ``loss_fn(gn, **loss_kwargs)`` and returning either a
+        scalar loss tensor or ``(loss, metrics_dict)``.
+    loss_kwargs : Mapping[str, Any] | None, optional
+        Extra keyword arguments forwarded to ``loss_fn``. When provided, tensors
+        and arrays are coerced to ``gn``'s device/dtype via
+        :func:`gradnet.utils._to_like_struct`.
+    num_updates : int
+        Number of optimisation steps to run.
+    optim_cls : type[torch.optim.Optimizer], optional
+        Optimiser class constructed as ``optim_cls(gn.parameters(), **optim_kwargs)``.
+    optim_kwargs : dict | None, optional
+        Keyword arguments for the optimiser. Defaults to ``{"lr": 1e-2}`` when
+        ``None``.
+    sched_cls : type | None, optional
+        Optional learning-rate scheduler applied to the optimiser.
+    sched_kwargs : dict | None, optional
+        Keyword arguments for ``sched_cls``.
+    precision : str | int, optional
+        Forwarded to ``pl.Trainer(precision=...)`` (e.g., ``"32-true"``, ``16``).
+    accelerator : str, optional
+        Passed to ``pl.Trainer(accelerator=...)`` (``"auto"``, ``"cpu"``, ``"gpu"``, etc.).
+    logger : LightningLoggerBase | bool | None, optional
+        Logger configuration forwarded to ``pl.Trainer``. Use ``True`` for the
+        default logger, ``False`` to disable logging, or supply a Lightning
+        logger instance.
+    enable_checkpointing : bool, optional
+        Enable the default ``ModelCheckpoint`` callback. When ``True`` the
+        callback is appended automatically using the ``monitor``/``mode`` settings.
+    checkpoint_dir : str | None, optional
+        Directory used by ``ModelCheckpoint`` when checkpointing is enabled.
+    monitor : str, optional
+        Metric key to monitor for checkpoint selection and loss logging.
+    mode : str, optional
+        Whether to minimise (``"min"``) or maximise (``"max"``) ``monitor``.
+    save_top_k : int, optional
+        Number of best checkpoints to keep.
+    save_last : bool, optional
+        Whether to always save the final checkpoint.
+    callbacks : list[pl.Callback] | None, optional
+        Additional Lightning callbacks to register.
+    max_time : str | None, optional
+        Training time limit forwarded to ``pl.Trainer(max_time=...)``.
+    grad_clip_val : float, optional
+        Gradient-norm clipping threshold applied before optimiser steps.
+    post_step_renorm : bool, optional
+        Call ``gn.renorm_params()`` after each optimiser step when available.
+    compile_model : bool, optional
+        Attempt to wrap ``gn`` with :func:`torch.compile` during setup.
+    seed : int | None, optional
+        When provided, seeds PyTorch Lightning via ``pl.seed_everything``.
+    deterministic : bool | str | None, optional
+        If not ``None``, passed to ``torch.use_deterministic_algorithms``.
+    verbose : bool, optional
+        Show progress via :class:`tqdm.auto.tqdm`.
 
-    .. tip::
-       To use TensorBoard logging, pass a TensorBoard logger instance, e.g.::
+    Returns
+    -------
+    tuple[pl.Trainer, str | None]
+        The configured trainer and the best checkpoint path (``None`` when
+        checkpointing is disabled).
 
-           from pytorch_lightning.loggers import TensorBoardLogger
-           logger = TensorBoardLogger(save_dir="logs", name="exp")
-           fit(gn=model, loss_fn=loss, num_updates=100, logger=logger)
+    Raises
+    ------
+    TypeError
+        If ``loss_kwargs`` is neither ``None`` nor a mapping.
+
+    Examples
+    --------
+    >>> from pytorch_lightning.loggers import TensorBoardLogger
+    >>> logger = TensorBoardLogger(save_dir="logs", name="demo")
+    >>> trainer, best_ckpt = fit(
+    ...     gn=model,
+    ...     loss_fn=loss,
+    ...     num_updates=100,
+    ...     logger=logger,
+    ... )
 
     .. seealso::
        PyTorch Optimizers (``torch.optim``), PyTorch LR Schedulers
@@ -440,6 +426,3 @@ def fit(
             logging.getLogger(name).setLevel(lvl)
 
     return trainer, (ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None)
-
-
-#TODO figure out logging (plot loss and metrics)

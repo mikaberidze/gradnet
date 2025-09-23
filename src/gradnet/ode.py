@@ -21,27 +21,6 @@ import torch.nn as nn
 from .utils import _to_like_struct
 
 
-class EventResult(NamedTuple):
-    """Result metadata for an event-triggered integration.
-
-    Returned by :func:`integrate_ode` when ``event_fn`` is provided and an
-    event is detected. The fields mirror the outputs of
-    :func:`torchdiffeq.odeint_event` and are aligned to the device/dtype of the
-    integration.
-
-    :ivar t: Time at which the event was detected (scalar tensor).
-    :ivar x: State at the event time with the same shape as ``x0``.
-    :ivar index: Optional event index tensor as returned by
-        :func:`torchdiffeq.odeint_event` (may be ``None`` depending on your
-        torchdiffeq version and event configuration).
-    :ivar reached: ``True`` when an event was reached. Present for a uniform
-        return shape; always ``True`` for now.
-    """
-    t: torch.Tensor
-    x: torch.Tensor
-    index: Optional[torch.Tensor]
-    reached: bool
-
 class _VectorField(nn.Module):
     """Internal wrapper so the adjoint can discover parameters.
 
@@ -132,8 +111,7 @@ def integrate_ode(
         <https://github.com/rtqichen/torchdiffeq>`_).
       rtol (float, optional): Relative tolerance.
       atol (float, optional): Absolute tolerance.
-      solver_options (dict | None, optional): Additional solver options (e.g.,
-        ``{"step_size": 0.1}`` for fixed-step methods). #! check if in agreement with torchdiffeq
+      solver_options (dict | None, optional): Additional solver options.
       adjoint (bool, optional): If ``True``, use the adjoint method.
       adjoint_options (dict | None, optional): Options for adjoint solve
         (e.g., ``{"norm": "seminorm"}``).

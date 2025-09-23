@@ -16,7 +16,7 @@ SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir, 'src'))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from gradnet.ode import integrate_ode, EventResult
+from gradnet.ode import integrate_ode
 from gradnet.gradnet import GradNet
 
 
