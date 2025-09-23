@@ -69,24 +69,13 @@ fit(gradnet=model, loss_fn=loss_fn, num_updates=200, learning_rate=1e-2)
 The trainer handles optimizer setup, logging, and checkpointing while you focus on defining the objective.
 
 ## Modules at a glance
-- `gradnet.GradNet`: wraps dense and sparse parameterizations, supports NetworkX export, masking, and custom costs.
+- `gradnet.GradNet`: wraps dense and sparse parameterizations, supports directed/undirected networks, masking, custom edge-building costs etc.
 - `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
 - `gradnet.fit`: PyTorch Lightning loop that optimizes a `GradNet` using user-supplied loss functions.
-- `gradnet.utils`: helpers for masks, costs, and conversions between SciPy/NetworkX formats.
+- `gradnet.utils`: various helpers functions.
 
 ## Documentation
 Full API documentation, tutorials, and background material live at [gradnet.readthedocs.io](https://gradnet.readthedocs.io/).
-
-## Examples
-Interactive notebooks that reproduce common network optimization experiments are available in `examples/`:
-- `1_λ₂_algebraic_connectivity.ipynb`
-- `2_karate_club.ipynb`
-- `2_kuramoto.ipynb`
-
-## Development
-1. Install the project in editable mode: `pip install -e .`
-2. Install any additional tooling you need for tests or docs (e.g. `pytest`, `sphinx`).
-3. Run the test suite with `pytest` and build docs with `sphinx-build -b html docs/source docs/build/html` before submitting changes.
 
 ## License
 GradNet is released under the BSD 3-Clause License. See `LICENSE` for details.
