@@ -18,13 +18,12 @@ keywords = ["graphs", "networks", "dynamical systems", "pytorch", "optimization"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: BSD 3-Clause 'New' or 'Revised' License",
+  "License :: OSI Approved :: BSD License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Scientific/Engineering :: Mathematics",
-  "Framework :: PyTorch",
 ]
 dependencies = [
   "torch>=2.0",
