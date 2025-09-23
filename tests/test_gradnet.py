@@ -265,6 +265,10 @@ def test_prepare_edge_list_and_cost_aggregation_and_gather_helpers():
 
 
 def test_to_networkx_prunes_and_types():
+    nx = pytest.importorskip(
+        "networkx",
+        reason="network export helpers require the optional 'networkx' extra",
+    )
     N = 3
     mask = torch.ones((N, N)) - torch.eye(N)
     gn = GradNet(
@@ -282,7 +286,6 @@ def test_to_networkx_prunes_and_types():
     net = to_networkx(gn, pruning_threshold=1e-6)
     assert net.number_of_nodes() == N
     # undirected graph expected
-    import networkx as nx
 
     assert isinstance(net, nx.Graph)
     # edges non-empty if budget > 0
@@ -290,6 +293,10 @@ def test_to_networkx_prunes_and_types():
 
 
 def test_to_networkx_directed_graph_edges():
+    nx = pytest.importorskip(
+        "networkx",
+        reason="network export helpers require the optional 'networkx' extra",
+    )
     N = 3
     mask = torch.ones((N, N)) - torch.eye(N)
     gn = GradNet(
@@ -304,7 +311,6 @@ def test_to_networkx_directed_graph_edges():
         dtype=torch.float32,
     )
     net = to_networkx(gn, pruning_threshold=0.0)
-    import networkx as nx
     assert isinstance(net, nx.DiGraph)
     # With directed graph, (i,j) and (j,i) are distinct; since initialization is
     # symmetric here, expect both directions to exist for at least one pair.
@@ -314,6 +320,10 @@ def test_to_networkx_directed_graph_edges():
 
 
 def test_to_networkx_directed_with_asymmetric_mask():
+    nx = pytest.importorskip(
+        "networkx",
+        reason="network export helpers require the optional 'networkx' extra",
+    )
     # Use an asymmetric mask (strictly upper triangular) to induce asymmetric edges
     N = 4
     full = torch.ones((N, N))
@@ -330,7 +340,6 @@ def test_to_networkx_directed_with_asymmetric_mask():
         dtype=torch.float32,
     )
     net = to_networkx(gn, pruning_threshold=0.0)
-    import networkx as nx
     assert isinstance(net, nx.DiGraph)
     # Expect edges only in upper-triangular direction
     for i in range(N):

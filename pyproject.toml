@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gradnet"
-version = "0.1.0"
+version = "0.1.4"
 description = "Trainable graph adjacency parameterizations with ODE integration and Lightning training helpers."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "BSD-3-Clause"
 authors = [
   { name = "Guram Mikaberidze" },
   { name = "Beso Mikaberidze" },
@@ -28,10 +28,14 @@ classifiers = [
 dependencies = [
   "torch>=2.0",
   "numpy>=1.21",
-  "networkx>=2.6",
   "pytorch-lightning>=1.9,<3",
   "tqdm>=4.64",
   "torchdiffeq>=0.2.3",
+]
+
+[project.optional-dependencies]
+networkx = [
+  "networkx>=2.6",
 ]
 
 [project.urls]
@@ -39,5 +43,14 @@ Homepage = "https://mikaberidze.github.io/"
 Documentation = "https://gradnet.readthedocs.io/"
 Repository = "https://github.com/mikaberidze/gradnet"
 
+[tool.hatch.build]
+# You can keep this or drop it; only keep if your VCS ignores hide files you DO want
+ignore-vcs = true
+include = ["LICENSE", "README.md"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gradnet"]
+
+[tool.hatch.build.targets.sdist]
+# Ensure the source package is included in the source distribution too
+only-include = ["src/gradnet", "LICENSE", "README.md", "pyproject.toml"]

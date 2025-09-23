@@ -238,8 +238,8 @@ def fit(
     precision: Union[str, int] = "32-true",
     accelerator: str = "auto",
     # logging/ckpt
-    logger: Optional[LightningLoggerBase] = True,
-    enable_checkpointing: bool = True,
+    logger: Optional[LightningLoggerBase] = False,
+    enable_checkpointing: bool = False,
     checkpoint_dir: Optional[str] = None,
     monitor: str = "loss",
     mode: str = "min",

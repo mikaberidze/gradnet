@@ -85,7 +85,13 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
     :return: A ``networkx.Graph`` if ``undirected`` else a ``DiGraph``.
     :rtype: networkx.Graph | networkx.DiGraph
     """
-    import networkx as nx
+    try:
+        import networkx as nx
+    except ImportError as exc:  # pragma: no cover - exercised when the extra is absent
+        raise ImportError(
+            "to_networkx requires the optional 'networkx' extra; install it with"
+            " `pip install gradnet[networkx]`."
+        ) from exc
     net = nx.Graph() if gn.undirected else nx.DiGraph()
     net.add_nodes_from(range(gn.num_nodes))
 
@@ -170,15 +176,26 @@ def plot_graph(
     node_size: float = 15.0,
     edgecolors: str = "black",
     draw_kwargs: Optional[dict] = None,
+    add_colorbar: bool = True,
+    colorbar_label: str = None,
 ):
     """Draw the NetworkX representation of ``gn``.
 
     - If ``ax`` is ``None``, creates a new figure and axes.
     - Uses ``to_networkx`` and derives edge widths from weights.
     - ``layout`` can be a ``networkx.draw_*`` name or a callable.
+    - If `add_colorbar=True`, adds a colorbar when `node_color` is array-like.
     """
     import matplotlib.pyplot as plt
-    import networkx as nx
+    from matplotlib.cm import ScalarMappable
+    import numpy as np
+    try:
+        import networkx as nx
+    except ImportError as exc:
+        raise ImportError(
+            "plot_graph requires the optional 'networkx' extra; install it with"
+            " `pip install gradnet[networkx]`."
+        ) from exc
 
     if ax is None:
         _, ax = plt.subplots()
@@ -186,19 +203,32 @@ def plot_graph(
     net = to_networkx(gn, pruning_threshold=pruning_threshold)
     edge_weights = list(nx.get_edge_attributes(net, "weight").values())
     if not edge_weights:
-        edge_weights = None  # fallback to defaults when graph has no edges
+        edge_weights = None
 
     draw_kwargs = {} if draw_kwargs is None else dict(draw_kwargs)
     draw_kwargs.setdefault("nodelist", sorted(net.nodes()))
     draw_kwargs.setdefault("node_size", node_size)
     draw_kwargs.setdefault("width", edge_weights)
     draw_kwargs.setdefault("edgecolors", edgecolors)
+
     draw_fn = getattr(nx, f"draw_{layout}") if isinstance(layout, str) else layout
     if not callable(draw_fn):
         raise ValueError(f"layout '{layout}' is not callable")
 
+    # Draw the network
     draw_fn(net, ax=ax, **draw_kwargs)
+
+    # Optionally add a colorbar
+    if add_colorbar and "node_color" in draw_kwargs:
+        node_color = draw_kwargs["node_color"]
+        if hasattr(node_color, "__len__") and not isinstance(node_color, str):
+            cmap = draw_kwargs.get("cmap", plt.cm.viridis)
+            sm = ScalarMappable(cmap=cmap)
+            sm.set_array(np.asarray(node_color))
+            ax.figure.colorbar(sm, ax=ax, label=colorbar_label)
+
     return net
+
 
 
 def _shortest_path(A: torch.Tensor, pair="full"):

@@ -1,0 +1,15 @@
+/* Hide version selectors in Read the Docs and common Sphinx themes */
+.rst-versions,
+.rst-current-version,
+.wy-side-nav-search .version,
+#version-switcher,
+.version-switcher,
+.bd-header__version,
+.bd-sidebar__version,
+.navbar-item--version,
+.header-version,
+.sidebar-version,
+.switch-menus,
+.floating.container.bottom-right {
+  display: none !important;
+}

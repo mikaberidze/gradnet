@@ -21,7 +21,10 @@ To work off the latest sources instead, clone the repository and install in edit
 pip install -e .
 ```
 
-GradNet targets Python 3.10+ and depends on PyTorch, PyTorch Lightning, torchdiffeq, NetworkX, NumPy, and tqdm (installed automatically by the command above).
+GradNet targets Python 3.10+ and depends on PyTorch, PyTorch Lightning, torchdiffeq, NumPy, and tqdm (installed automatically by the command above). Install the optional NetworkX helpers with `pip install gradnet[networkx]` when you need conversions to `networkx` graphs or plotting utilities that rely on it.
+
+## Documentation
+Full API documentation, tutorials, and background material live at [gradnet.readthedocs.io](https://gradnet.readthedocs.io/).
 
 ## Quickstart
 
@@ -73,9 +76,6 @@ The trainer handles optimizer setup, logging, and checkpointing while you focus 
 - `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
 - `gradnet.fit`: PyTorch Lightning loop that optimizes a `GradNet` using user-supplied loss functions.
 - `gradnet.utils`: various helpers functions.
-
-## Documentation
-Full API documentation, tutorials, and background material live at [gradnet.readthedocs.io](https://gradnet.readthedocs.io/).
 
 ## License
 GradNet is released under the BSD 3-Clause License. See `LICENSE` for details.

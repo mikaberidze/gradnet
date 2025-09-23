@@ -16,8 +16,6 @@ Docstrings mirror the style used in :mod:`gradnet.ode` and
 from __future__ import annotations
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import networkx as nx
 from typing import Optional, Tuple, Union
 import warnings
 
@@ -270,9 +268,9 @@ class DenseParameterization(nn.Module):
             delta = symmetrize(delta)
 
         if self.delta_sign == "nonnegative":
-            delta = positivize(delta, q=2)
+            delta = positivize(delta)
         elif self.delta_sign == "nonpositive":
-            delta = -positivize(delta, q=2)
+            delta = -positivize(delta)
 
         delta = delta * self.mask
         
@@ -417,9 +415,9 @@ class SparseParameterization(nn.Module):
         w = self.delta_adj_raw
 
         if self.delta_sign == "nonnegative":
-            w = positivize(w, q=2)
+            w = positivize(w)
         elif self.delta_sign == "nonpositive":
-            w = -positivize(w, q=2)
+            w = -positivize(w)
 
         p = max(1, int(self.cost_aggr_norm))
         eps = w.new_tensor(1e-8)

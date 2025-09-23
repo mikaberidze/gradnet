@@ -7,26 +7,3 @@
 .rst-content {
   max-width: 100% !important;
 }
-
-
-/* --- Read the Docs flyout (the big box with "Versions" at bottom-left) --- */
-.rst-versions,           /* the flyout panel itself */
-.rst-current-version {   /* the small tab/handle that opens the flyout */
-  display: none !important;
-}
-
-/* --- sphinx_rtd_theme sidebar "version" text under the project title --- */
-.wy-side-nav-search .version {
-  display: none !important;
-}
-
-/* --- Common selectors used by various themes/switchers --- */
-#version-switcher,
-.version-switcher,
-.bd-header__version,
-.bd-sidebar__version,
-.navbar-item--version,
-.header-version,
-.sidebar-version {
-  display: none !important;
-}
