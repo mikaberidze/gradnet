@@ -236,6 +236,7 @@ _write_notebook_download_manifest()
 html_js_files = [
     'download_data.js',
     'download.js',
+    'hide_versions.js',
 ]
 
 # Cross-links to external projects
