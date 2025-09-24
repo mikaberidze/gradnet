@@ -208,6 +208,7 @@ except Exception:
     html_theme = 'alabaster'
 
 html_static_path = ['_static']
+html_favicon = '_static/favicon.png'
 html_css_files = [
     'custom.css',
     'hide_versions.css',
@@ -235,6 +236,8 @@ def _write_notebook_download_manifest() -> None:
 _write_notebook_download_manifest()
 
 html_js_files = [
+    ('https://www.googletagmanager.com/gtag/js?id=G-JH3ZT1WE9M', {'async': 'async'}),
+    'analytics.js',
     'download_data.js',
     'download.js',
     'hide_versions.js',
