@@ -5,7 +5,7 @@ GradNet provides differentiable parameterizations of graph adjacency matrices wi
 <p align="center">
   <img src="docs/source/_static/rewiring_net.gif"
        alt="A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model."
-       width="200" />
+       width="300" />
 </p>
 
 ## Highlights
