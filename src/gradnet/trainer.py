@@ -7,6 +7,7 @@ updates.
 from __future__ import annotations
 from typing import Callable, Dict, Optional, Tuple, Union, Mapping, Any, Protocol
 import logging
+import sys
 import warnings
 import torch
 import torch.nn as nn
@@ -42,6 +43,29 @@ warnings.filterwarnings(  # silence GPU not used warning
     message=r"GPU available but not used.*",
     category=PossibleUserWarning,
 )
+
+
+def _redirect_lightning_logs_to_stdout() -> None:
+    """Ensure Lightning loggers stream to stdout so notebook output stays neutral."""
+    logger_names = [
+        "pytorch_lightning",
+        "lightning.pytorch.utilities.rank_zero",
+        "lightning.fabric.utilities.rank_zero",
+    ]
+    for name in logger_names:
+        logger = logging.getLogger(name)
+        has_stream_handler = False
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.StreamHandler):
+                handler.setStream(sys.stdout)
+                has_stream_handler = True
+        if not has_stream_handler:
+            logger.addHandler(logging.StreamHandler(sys.stdout))
+        logger.propagate = False
+
+
+_redirect_lightning_logs_to_stdout()
+
 
 class LossFn(Protocol):
     """Protocol for loss functions used with :func:`fit`.
