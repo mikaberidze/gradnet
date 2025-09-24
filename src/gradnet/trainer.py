@@ -7,6 +7,7 @@ updates.
 from __future__ import annotations
 from typing import Callable, Dict, Optional, Tuple, Union, Mapping, Any, Protocol
 import logging
+import warnings
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -27,7 +28,6 @@ with warnings.catch_warnings():
         from tqdm import tqdm  # noqa: F401  # CLI fallback without warnings
 from .utils import _to_like_struct
 from .gradnet import GradNet
-import warnings
 try:# PL >= 1.6-ish
     from pytorch_lightning.utilities.warnings import PossibleUserWarning
 except Exception: # Fallback for older PL where it's just a UserWarning
@@ -234,6 +234,42 @@ class _EpochTQDM(Callback):
         self.bar.close()
 
 
+def _resolve_logger(
+    logger: LightningLoggerBase | bool | None,
+    *,
+    verbose: bool,
+) -> LightningLoggerBase | bool:
+    """Return a Lightning logger instance or ``False``.
+
+    When ``logger`` is ``True`` this attempts to build a ``TensorBoardLogger``
+    and falls back to ``CSVLogger`` if TensorBoard is unavailable. Logging is
+    disabled when ``verbose`` is ``False`` to mirror the previous behaviour.
+    """
+    if not verbose:
+        return False
+
+    if isinstance(logger, LightningLoggerBase):
+        return logger
+
+    if not logger:  # covers False and None
+        return False
+
+    try:
+        from pytorch_lightning.loggers import TensorBoardLogger
+
+        return TensorBoardLogger(save_dir="lightning_logs", name="gradnet")
+    except Exception as exc:  # pragma: no cover - depends on optional dependency
+        warnings.warn(
+            "TensorBoard logger unavailable; using CSVLogger instead. "
+            "Install the `tensorboard` package to re-enable TensorBoard logging. "
+            f"Original error: {exc}",
+            RuntimeWarning,
+        )
+        from pytorch_lightning.loggers import CSVLogger
+
+        return CSVLogger(save_dir="lightning_logs", name="gradnet")
+
+
 def fit(
     *,
     gn: GradNet,
@@ -248,7 +284,7 @@ def fit(
     precision: Union[str, int] = "32-true",
     accelerator: str = "auto",
     # logging/ckpt
-    logger: Optional[LightningLoggerBase] = False,
+    logger: LightningLoggerBase | bool | None = False,
     enable_checkpointing: bool = False,
     checkpoint_dir: Optional[str] = None,
     monitor: str = "loss",
@@ -300,8 +336,9 @@ def fit(
         Passed to ``pl.Trainer(accelerator=...)`` (``"auto"``, ``"cpu"``, ``"gpu"``, etc.).
     logger : LightningLoggerBase | bool | None, optional
         Logger configuration forwarded to ``pl.Trainer``. Use ``True`` for the
-        default logger, ``False`` to disable logging, or supply a Lightning
-        logger instance.
+        default logger (falls back to ``CSVLogger`` when TensorBoard is
+        unavailable), ``False`` to disable logging, or supply a Lightning logger
+        instance.
     enable_checkpointing : bool, optional
         Enable the default ``ModelCheckpoint`` callback. When ``True`` the
         callback is appended automatically using the ``monitor``/``mode`` settings.
@@ -414,11 +451,13 @@ def fit(
             prev_levels[name] = lg.level
             lg.setLevel(logging.ERROR)
 
+    trainer_logger = _resolve_logger(logger, verbose=verbose)
+
     trainer = pl.Trainer(
         max_epochs=int(num_updates),
         accelerator=accelerator,
         precision=precision,
-        logger=(logger if verbose else False),
+        logger=trainer_logger,
         enable_checkpointing=enable_checkpointing,
         callbacks=cb,
         log_every_n_steps=1,
