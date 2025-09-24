@@ -1,5 +1,5 @@
-integrate_ode
-=============
+integrate_ode (function)
+========================
 
 Numerically integrate an ordinary differential equation parameterized by a
 :class:`gradnet.GradNet`.

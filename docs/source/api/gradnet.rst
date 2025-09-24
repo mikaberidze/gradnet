@@ -1,5 +1,5 @@
-GradNet
-=======
+GradNet (class)
+===============
 
 The core differentiable adjacency parameterization exposed at the top level of
 ``gradnet``.

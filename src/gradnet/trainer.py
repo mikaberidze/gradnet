@@ -5,13 +5,16 @@ This module provides a thin Lightning wrapper and a convenience function
 updates.
 """
 from __future__ import annotations
-from typing import Callable, Dict, Optional, Tuple, Union, Mapping, Any, Protocol
+from typing import Dict, Optional, Tuple, Union, Mapping, Any, Protocol
 import logging
-import sys
+import os
 import warnings
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+
+os.environ.setdefault("LIGHTING_USE_RICH", "0")
+
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase
@@ -33,7 +36,9 @@ try:# PL >= 1.6-ish
     from pytorch_lightning.utilities.warnings import PossibleUserWarning
 except Exception: # Fallback for older PL where it's just a UserWarning
     PossibleUserWarning = UserWarning
-warnings.filterwarnings(  # silence few data-loader workers worning. We don't need data-loader workers
+
+
+warnings.filterwarnings(  # silence few data-loader workers warning. We don't need data-loader workers
     "ignore",
     message=r"The 'train_dataloader' does not have many workers.*",
     category=PossibleUserWarning,
@@ -43,27 +48,6 @@ warnings.filterwarnings(  # silence GPU not used warning
     message=r"GPU available but not used.*",
     category=PossibleUserWarning,
 )
-
-def _redirect_lightning_logs_to_stdout() -> None:
-    """Ensure Lightning loggers stream to stdout so notebook output stays neutral."""
-    logger_names = [
-        "pytorch_lightning",
-        "lightning.pytorch.utilities.rank_zero",
-        "lightning.fabric.utilities.rank_zero",
-    ]
-    for name in logger_names:
-        logger = logging.getLogger(name)
-        has_stream_handler = False
-        for handler in list(logger.handlers):
-            if isinstance(handler, logging.StreamHandler):
-                handler.setStream(sys.stdout)
-                has_stream_handler = True
-        if not has_stream_handler:
-            logger.addHandler(logging.StreamHandler(sys.stdout))
-        logger.propagate = False
-
-
-_redirect_lightning_logs_to_stdout()
 
 
 class LossFn(Protocol):
@@ -330,6 +314,12 @@ def fit(
     ``num_updates`` equals the number of optimisation steps executed. Each step
     evaluates ``loss_fn(gn, **loss_kwargs)`` and drives manual optimisation via
     :class:`GradNetLightning`.
+
+    Notes
+    -----
+    When called from a Jupyter notebook, PyTorch Lightning writes progress and
+    hardware summaries to ``stderr``. Jupyter renders those lines in red by
+    default, but the colour does not indicate an error.
 
     Parameters
     ----------

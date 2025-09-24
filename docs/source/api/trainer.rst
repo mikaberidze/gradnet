@@ -1,5 +1,5 @@
-Trainer module
-==============
+trainer (module)
+================
 
 Lightning helpers and convenience routines bundled with ``gradnet``.
 

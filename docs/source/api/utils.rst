@@ -1,5 +1,5 @@
-utils module
-============
+utils (module)
+==============
 
 Utility helpers exposed by ``gradnet.utils``. All public functions are listed
 below.
