@@ -2,3 +2,5 @@
 Sphinx>=5,<8
 myst-nb>=0.17
 sphinx_rtd_theme>=1.1
+sphinx-sitemap>=2.5
+sphinxext-opengraph>=0.8

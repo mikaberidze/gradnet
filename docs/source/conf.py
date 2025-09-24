@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urljoin
 
 # Guard against autodoc typehints choking on mocked types by neutralising the
 # event handler up front.
@@ -146,8 +147,17 @@ except Exception:
 # -- Project information -----------------------------------------------------
 project = 'gradnet'
 author = 'Guram Mikaberidze, Beso Mikaberidze, Dane Taylor'
+PROJECT_DESCRIPTION = (
+    'GradNet provides trainable graph adjacency parameterizations, '
+    'ODE integration utilities, and PyTorch Lightning training helpers.'
+)
+KEYWORDS = 'gradnet, graph learning, pytorch, dynamical systems, network optimization'
 copyright = '2025, ' + author
-release = '0.1.0'
+release = '0.1.10'
+language = 'en'
+
+_canonical = os.environ.get('READTHEDOCS_CANONICAL_URL')
+html_baseurl = (_canonical.rstrip('/') + '/') if _canonical else 'https://gradnet.readthedocs.io/en/latest/'
 
 # -- General configuration ---------------------------------------------------
 extensions = [
@@ -158,6 +168,8 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'myst_nb',
+    'sphinx_sitemap',
+    'sphinxext.opengraph',
 ]
 
 templates_path = ['_templates']
@@ -213,6 +225,22 @@ html_css_files = [
     'custom.css',
     'hide_versions.css',
 ]
+html_title = 'GradNet Documentation'
+html_short_title = 'GradNet Docs'
+html_extra_path = ['robots.txt']
+html_meta = {
+    'description': PROJECT_DESCRIPTION,
+    'keywords': KEYWORDS,
+    'author': author,
+}
+sitemap_url_scheme = '{link}'
+sitemap_excludes = ['search', 'genindex']
+
+ogp_site_url = html_baseurl
+ogp_site_name = 'GradNet Documentation'
+ogp_description = PROJECT_DESCRIPTION
+ogp_image = urljoin(html_baseurl, '_static/rewiring_net.gif')
+ogp_type = 'website'
 
 
 def _write_notebook_download_manifest() -> None:
