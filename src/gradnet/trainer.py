@@ -44,7 +44,6 @@ warnings.filterwarnings(  # silence GPU not used warning
     category=PossibleUserWarning,
 )
 
-
 def _redirect_lightning_logs_to_stdout() -> None:
     """Ensure Lightning loggers stream to stdout so notebook output stays neutral."""
     logger_names = [
