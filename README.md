@@ -2,7 +2,9 @@
 
 GradNet provides differentiable parameterizations of graph adjacency matrices with explicit budget and structure constraints. It pairs these parameterizations with ODE solvers and a lightweight PyTorch Lightning training loop so you can prototype network optimization problems quickly.
 
-![GradNet rewiring animation](docs/source/_static/rewiring_net.gif)
+<img src="docs/source/_static/rewiring_net.gif"
+     alt="A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model."
+     width="200" />
 
 ## Highlights
 - Learn dense or sparse adjacency updates with norm, sign, and symmetry constraints.
