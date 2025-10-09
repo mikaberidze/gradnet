@@ -176,7 +176,7 @@ def plot_graph(
     node_size: float = 15.0,
     edgecolors: str = "black",
     draw_kwargs: Optional[dict] = None,
-    add_colorbar: bool = True,
+    add_colorbar: bool = False,
     colorbar_label: str = None,
 ):
     """Draw the NetworkX representation of ``gn``.
@@ -228,7 +228,6 @@ def plot_graph(
             ax.figure.colorbar(sm, ax=ax, label=colorbar_label)
 
     return net
-
 
 
 def _shortest_path(A: torch.Tensor, pair="full"):

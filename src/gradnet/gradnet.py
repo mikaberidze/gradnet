@@ -71,7 +71,7 @@ def normalize(matrix: torch.Tensor,
     return matrix * scale
 
 
-def positivize(matrix: torch.Tensor, q: int=1, eps: float=1e-10) -> torch.Tensor:
+def positivize(matrix: torch.Tensor, q: int=1, eps: float=1e-6) -> torch.Tensor:
     """Map unconstrained entries to nonnegative values via squaring.
 
     Args:
