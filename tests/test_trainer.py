@@ -145,12 +145,18 @@ def test_checkpointing_every_n(tmp_path: pathlib.Path):
     # best checkpoint path should be a file path when checkpointing enabled
     assert isinstance(best, str) and len(best) > 0
     assert os.path.exists(best)
-    ckpt_cb = next(c for c in trainer.callbacks if isinstance(c, ModelCheckpoint))
-    assert ckpt_cb.every_n_epochs == 2
-    assert ckpt_cb.monitor == "loss"
-    assert ckpt_cb.mode == "min"
-    assert ckpt_cb.save_top_k == 1
-    assert ckpt_cb.save_last is True
+    checkpoints = [c for c in trainer.callbacks if isinstance(c, ModelCheckpoint)]
+    assert len(checkpoints) == 2
+    best_cb = next(c for c in checkpoints if c.monitor == "loss")
+    periodic_cb = next(c for c in checkpoints if c.monitor is None)
+    assert best_cb.monitor == "loss"
+    assert best_cb.mode == "min"
+    assert best_cb.save_top_k == 1
+    assert best_cb.save_last is True
+    assert best_cb.every_n_epochs is None
+    assert periodic_cb.every_n_epochs == 2
+    assert periodic_cb.save_top_k == -1
+    assert periodic_cb.save_last is False
 
 
 def test_checkpointing_defaults_best_only(tmp_path: pathlib.Path):
@@ -170,7 +176,10 @@ def test_checkpointing_defaults_best_only(tmp_path: pathlib.Path):
         logger=False,
         accelerator="cpu",
     )
-    ckpt_cb = next(c for c in trainer.callbacks if isinstance(c, ModelCheckpoint))
+    checkpoints = [c for c in trainer.callbacks if isinstance(c, ModelCheckpoint)]
+    assert len(checkpoints) == 1
+    ckpt_cb = checkpoints[0]
+    assert ckpt_cb.monitor == "loss"
     assert ckpt_cb.every_n_epochs is None
     assert ckpt_cb.save_last is False
     assert isinstance(best, str) and os.path.exists(best)

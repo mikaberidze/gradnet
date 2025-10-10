@@ -351,16 +351,16 @@ def fit(
         unavailable), ``False`` to disable logging, or supply a Lightning logger
         instance.
     enable_checkpointing : bool, optional
-        Enable the default ``ModelCheckpoint`` callback. When ``True``
-        it monitors ``loss`` and keeps the best checkpoint. Also allows saving
-        the last checkpoint when ``save_last=True``, and periodic checkpoints
-        when ``checkpoint_every_n`` is provided.
+        Enable the default ``ModelCheckpoint`` callback. When ``True`` it
+        monitors ``loss`` in ``min`` mode to keep the best checkpoint, can store
+        the last checkpoint when ``save_last=True``, and optionally adds periodic
+        checkpoints via ``checkpoint_every_n``.
     checkpoint_dir : str | None, optional
         Directory used by ``ModelCheckpoint`` when checkpointing is enabled.
     checkpoint_every_n : int | None, optional
-        Save a checkpoint every ``checkpoint_every_n`` epochs (updates). Provide
-        an integer greater than or equal to 1 to enable periodic saves, or
-        ``None`` to disable them.
+        Save an additional checkpoint every ``checkpoint_every_n`` epochs
+        (updates). Provide an integer greater than or equal to 1 to enable
+        periodic saves, or ``None`` to disable them.
     save_last : bool, optional
         Whether to always save the final checkpoint in addition to the best.
     callbacks : list[pl.Callback] | None, optional
@@ -449,10 +449,22 @@ def fit(
             mode="min",
             save_top_k=1,
             save_last=save_last,
-            every_n_epochs=checkpoint_every_n,
             auto_insert_metric_name=False,
         )
         cb.append(ckpt)
+
+        if checkpoint_every_n is not None:
+            # keep regularly spaced checkpoints alongside the metric-based best
+            periodic = ModelCheckpoint(
+                dirpath=checkpoint_dir,
+                filename="gn-periodic-{epoch:05d}",
+                monitor=None,
+                save_top_k=-1,
+                save_last=False,
+                every_n_epochs=checkpoint_every_n,
+                auto_insert_metric_name=False,
+            )
+            cb.append(periodic)
 
     # progress bar only when verbose
     if verbose:

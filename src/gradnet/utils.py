@@ -2,9 +2,11 @@ import torch
 import random
 import numpy as np
 import time
+import warnings
 from functools import wraps
+from pathlib import Path
 import torch.linalg as LA
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Union
 
 
 
@@ -18,17 +20,6 @@ def random_seed(seed):
         torch.cuda.manual_seed(seed)
 
 
-def _timeit(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start = time.time()
-        result = func(*args, **kwargs)
-        end = time.time()
-        print(f"{func.__name__} took {end - start:.4f} seconds")
-        return result
-    return wrapper
-
-
 def prune_edges(del_adj: torch.Tensor, threshold: float) -> torch.Tensor:
     """Prunes edges in a given adjacency tensor based on a threshold value."""
     norm = torch.abs(del_adj).sum()
@@ -37,42 +28,6 @@ def prune_edges(del_adj: torch.Tensor, threshold: float) -> torch.Tensor:
     if pruned_norm < 1e-12:  # all edges pruned
         return torch.zeros_like(del_adj)
     return pruned * (norm / pruned_norm)
-
-
-def positions_to_distance_matrix(positions: torch.Tensor, norm: float = 2.0):
-    """Compute the pairwise distance matrix from node positions using a given norm."""
-    diff = positions.unsqueeze(1) - positions.unsqueeze(0)
-    return LA.vector_norm(diff, ord=norm, dim=-1)
-
-
-def reg_loss(del_adj: torch.Tensor) -> torch.Tensor:
-    """
-    Regularization loss for sparsifying the delta adjacency.
-    Computes sum(sigmoid(abs(del_adj))).
-    """
-    # f = lambda x: torch.sigmoid(x)
-    f = lambda x: torch.log(x + 1)
-    return torch.sum(f(torch.abs(del_adj)))/del_adj.shape[-1]
-
-
-def _to_like_struct(obj, like: torch.Tensor):
-    """Recursively move/cast tensors (and NumPy) inside obj to like.device/dtype; leave others as-is."""
-    if isinstance(obj, torch.Tensor):
-        return obj.to(device=like.device, dtype=like.dtype)
-    if isinstance(obj, np.ndarray):  # also catches np.matrix
-        # as_tensor shares memory on CPU; then we move/cast to match `like`
-        t = torch.as_tensor(obj)  # stays on CPU first
-        return t.to(device=like.device, dtype=like.dtype)
-    if isinstance(obj, np.generic):  # NumPy scalar (e.g., np.float32(3.0))
-        return torch.tensor(obj, device=like.device, dtype=like.dtype)
-    if isinstance(obj, Mapping):
-        return obj.__class__({k: _to_like_struct(v, like) for k, v in obj.items()})
-    if isinstance(obj, tuple) and hasattr(obj, "_fields"):  # namedtuple
-        return obj.__class__(*[_to_like_struct(v, like) for v in obj])
-    if isinstance(obj, (list, tuple)):
-        typ = obj.__class__
-        return typ(_to_like_struct(v, like) for v in obj)
-    return obj  # nn.Module or anything else stays as-is 
 
 
 def to_networkx(gn, pruning_threshold: float = 1e-8):
@@ -231,6 +186,141 @@ def plot_graph(
     return net
 
 
+def animate_adjacency(
+    checkpoints: Union[str, Path],
+    *,
+    output_path: Optional[Union[str, Path]] = None,
+    fps: int = 30,
+    dpi: int = 100,
+    figsize: Optional[tuple[float, float]] = None,
+    title_template: Optional[str] = "Checkpoint {index}: {name}",
+    imshow_kwargs: Optional[Mapping] = None,
+):
+    """Animate adjacency heatmaps for GradNet checkpoints named ``gn-periodic-*.ckpt``."""
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib import animation as mpl_animation
+    except Exception as exc:
+        warnings.warn(f"Matplotlib is required for animations: {exc}")
+        return None
+
+    from .gradnet import GradNet
+
+    fps = max(1, int(fps))
+    root = Path(checkpoints)
+    if root.is_dir():
+        ckpts = sorted(p for p in root.glob('gn-periodic-*.ckpt') if p.is_file())
+    else:
+        matches = root.is_file() and root.name.startswith('gn-periodic-') and root.suffix == '.ckpt'
+        ckpts = [root] if matches else []
+
+    if not ckpts:
+        warnings.warn("No checkpoints matching 'gn-periodic-*.ckpt' were found.")
+        return None
+
+    adjacencies = []
+    for path in ckpts:
+        model = GradNet.from_checkpoint(str(path), map_location='cpu')
+        adjacencies.append(model.to_numpy())
+
+    show_kwargs = {} if imshow_kwargs is None else dict(imshow_kwargs)
+    show_kwargs.setdefault('vmin', min(float(adj.min()) for adj in adjacencies))
+    show_kwargs.setdefault('vmax', max(float(adj.max()) for adj in adjacencies))
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = plot_adjacency_heatmap(
+        adjacencies[0],
+        ax=ax,
+        title=title_template.format(index=0, name=ckpts[0].name) if title_template else None,
+        imshow_kwargs=show_kwargs,
+    )
+
+    def _update(index: int):
+        im.set_data(adjacencies[index])
+        if title_template:
+            ax.set_title(title_template.format(index=index, name=ckpts[index].name))
+        return [im]
+
+    ani = mpl_animation.FuncAnimation(fig, _update, frames=len(adjacencies), interval=1000.0 / fps)
+
+    saved_path: Optional[Path] = None
+    if output_path:
+        saved_path = Path(output_path)
+        saved_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from matplotlib.animation import FFMpegWriter
+
+            ani.save(str(saved_path), writer=FFMpegWriter(fps=fps), dpi=dpi)
+        except Exception as exc:
+            warnings.warn(f"Failed to save animation to {saved_path}: {exc}")
+            saved_path = None
+
+    displayed = False
+    try:
+        from IPython.display import HTML, Video, display
+
+        if saved_path and saved_path.exists():
+            display(Video(str(saved_path), embed=True))
+            displayed = True
+        else:
+            display(HTML(ani.to_jshtml()))
+            displayed = True
+    except Exception:
+        pass
+
+    if not displayed:
+        try:
+            plt.show()
+            displayed = True
+        except Exception:
+            pass
+
+    if not displayed:
+        warnings.warn('Unable to display the animation; consider running inside a notebook environment.')
+
+    plt.close(fig)
+
+    return saved_path or ani
+
+
+def positions_to_distance_matrix(positions: torch.Tensor, norm: float = 2.0):
+    """Compute the pairwise distance matrix from node positions using a given norm."""
+    diff = positions.unsqueeze(1) - positions.unsqueeze(0)
+    return LA.vector_norm(diff, ord=norm, dim=-1)
+
+
+def reg_loss(del_adj: torch.Tensor) -> torch.Tensor:
+    """
+    Regularization loss for sparsifying the delta adjacency.
+    Computes sum(sigmoid(abs(del_adj))).
+    """
+    # f = lambda x: torch.sigmoid(x)
+    f = lambda x: torch.log(x + 1)
+    return torch.sum(f(torch.abs(del_adj)))/del_adj.shape[-1]
+
+
+################################################################################# private utils
+
+def _to_like_struct(obj, like: torch.Tensor):
+    """Recursively move/cast tensors (and NumPy) inside obj to like.device/dtype; leave others as-is."""
+    if isinstance(obj, torch.Tensor):
+        return obj.to(device=like.device, dtype=like.dtype)
+    if isinstance(obj, np.ndarray):  # also catches np.matrix
+        # as_tensor shares memory on CPU; then we move/cast to match `like`
+        t = torch.as_tensor(obj)  # stays on CPU first
+        return t.to(device=like.device, dtype=like.dtype)
+    if isinstance(obj, np.generic):  # NumPy scalar (e.g., np.float32(3.0))
+        return torch.tensor(obj, device=like.device, dtype=like.dtype)
+    if isinstance(obj, Mapping):
+        return obj.__class__({k: _to_like_struct(v, like) for k, v in obj.items()})
+    if isinstance(obj, tuple) and hasattr(obj, "_fields"):  # namedtuple
+        return obj.__class__(*[_to_like_struct(v, like) for v in obj])
+    if isinstance(obj, (list, tuple)):
+        typ = obj.__class__
+        return typ(_to_like_struct(v, like) for v in obj)
+    return obj  # nn.Module or anything else stays as-is 
+
+
 def _shortest_path(A: torch.Tensor, pair="full"):
     """Compute shortest path distances with SciPy and preserve Torch grads.
 
@@ -338,3 +428,13 @@ def _shortest_path(A: torch.Tensor, pair="full"):
     if not np.isfinite(dist_np[j]):
         return torch.tensor(float("inf"), dtype=A.dtype, device=A.device)
     return _reconstruct_cost_from_predecessors(i, j, pred_np)
+
+def _timeit(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+        print(f"{func.__name__} took {end - start:.4f} seconds")
+        return result
+    return wrapper
