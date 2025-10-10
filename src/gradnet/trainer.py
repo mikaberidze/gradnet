@@ -294,10 +294,8 @@ def fit(
     logger: LightningLoggerBase | bool | None = False,
     enable_checkpointing: bool = False,
     checkpoint_dir: Optional[str] = None,
-    monitor: str = "loss",
-    mode: str = "min",
-    save_top_k: int = 1,
-    save_last: bool = True,
+    checkpoint_every_n: Optional[int] = None,
+    save_last: bool = False,
     callbacks: Optional[list[pl.Callback]] = None,
     max_time: Optional[str] = None,
     # extras
@@ -353,18 +351,18 @@ def fit(
         unavailable), ``False`` to disable logging, or supply a Lightning logger
         instance.
     enable_checkpointing : bool, optional
-        Enable the default ``ModelCheckpoint`` callback. When ``True`` the
-        callback is appended automatically using the ``monitor``/``mode`` settings.
+        Enable the default ``ModelCheckpoint`` callback. When ``True``
+        it monitors ``loss`` and keeps the best checkpoint. Also allows saving
+        the last checkpoint when ``save_last=True``, and periodic checkpoints
+        when ``checkpoint_every_n`` is provided.
     checkpoint_dir : str | None, optional
         Directory used by ``ModelCheckpoint`` when checkpointing is enabled.
-    monitor : str, optional
-        Metric key to monitor for checkpoint selection and loss logging.
-    mode : str, optional
-        Whether to minimise (``"min"``) or maximise (``"max"``) ``monitor``.
-    save_top_k : int, optional
-        Number of best checkpoints to keep.
+    checkpoint_every_n : int | None, optional
+        Save a checkpoint every ``checkpoint_every_n`` epochs (updates). Provide
+        an integer greater than or equal to 1 to enable periodic saves, or
+        ``None`` to disable them.
     save_last : bool, optional
-        Whether to always save the final checkpoint.
+        Whether to always save the final checkpoint in addition to the best.
     callbacks : list[pl.Callback] | None, optional
         Additional Lightning callbacks to register.
     max_time : str | None, optional
@@ -434,20 +432,24 @@ def fit(
         sched_kwargs=sched_kwargs,
         grad_clip_val=grad_clip_val,
         post_step_renorm=post_step_renorm,
-        monitor_key=monitor,
+        monitor_key="loss",
         compile_model=compile_model,
     )
 
     cb = list(callbacks or [])
     ckpt = None
     if enable_checkpointing:
+        if checkpoint_every_n is not None:
+            if not isinstance(checkpoint_every_n, int) or checkpoint_every_n < 1:
+                raise ValueError("`checkpoint_every_n` must be an integer >= 1 or None.")
         ckpt = ModelCheckpoint(
             dirpath=checkpoint_dir,
             filename="gn-{epoch:05d}-{loss:.6f}",
-            monitor=monitor,
-            mode=mode,
-            save_top_k=save_top_k,
+            monitor="loss",
+            mode="min",
+            save_top_k=1,
             save_last=save_last,
+            every_n_epochs=checkpoint_every_n,
             auto_insert_metric_name=False,
         )
         cb.append(ckpt)

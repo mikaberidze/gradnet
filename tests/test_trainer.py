@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 
 from gradnet.trainer import (
     _OneItem,
@@ -120,7 +121,7 @@ def test_fit_runs_and_calls_renorm(tmp_path: pathlib.Path):
     assert net.renorm_calls == num_updates
 
 
-def test_checkpointing_and_monitor_key(tmp_path: pathlib.Path):
+def test_checkpointing_every_n(tmp_path: pathlib.Path):
     net = DummyNet()
     ckpt_dir = tmp_path / "ckpts"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -134,18 +135,66 @@ def test_checkpointing_and_monitor_key(tmp_path: pathlib.Path):
         optim_kwargs={"lr": 1e-2},
         enable_checkpointing=True,
         checkpoint_dir=str(ckpt_dir),
-        monitor="custom_loss",  # ensure monitor key is used
-        mode="min",
-        save_top_k=1,
-        save_last=False,
+        checkpoint_every_n=2,
+        save_last=True,
         logger=False,
         accelerator="cpu",
     )
     module = trainer.lightning_module
-    assert module.monitor_key == "custom_loss"
+    assert module.monitor_key == "loss"
     # best checkpoint path should be a file path when checkpointing enabled
     assert isinstance(best, str) and len(best) > 0
     assert os.path.exists(best)
+    ckpt_cb = next(c for c in trainer.callbacks if isinstance(c, ModelCheckpoint))
+    assert ckpt_cb.every_n_epochs == 2
+    assert ckpt_cb.monitor == "loss"
+    assert ckpt_cb.mode == "min"
+    assert ckpt_cb.save_top_k == 1
+    assert ckpt_cb.save_last is True
+
+
+def test_checkpointing_defaults_best_only(tmp_path: pathlib.Path):
+    net = DummyNet()
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    trainer, best = fit(
+        gn=net,
+        loss_fn=simple_loss,
+        loss_kwargs={"scale": 1.0},
+        num_updates=2,
+        optim_cls=torch.optim.Adam,
+        optim_kwargs={"lr": 1e-2},
+        enable_checkpointing=True,
+        checkpoint_dir=str(ckpt_dir),
+        logger=False,
+        accelerator="cpu",
+    )
+    ckpt_cb = next(c for c in trainer.callbacks if isinstance(c, ModelCheckpoint))
+    assert ckpt_cb.every_n_epochs is None
+    assert ckpt_cb.save_last is False
+    assert isinstance(best, str) and os.path.exists(best)
+
+
+def test_checkpointing_every_n_validation(tmp_path: pathlib.Path):
+    net = DummyNet()
+    ckpt_dir = tmp_path / "ckpts"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(ValueError):
+        fit(
+            gn=net,
+            loss_fn=simple_loss,
+            loss_kwargs={"scale": 1.0},
+            num_updates=1,
+            optim_cls=torch.optim.SGD,
+            optim_kwargs={"lr": 0.05},
+            enable_checkpointing=True,
+            checkpoint_dir=str(ckpt_dir),
+            checkpoint_every_n=0,
+            logger=False,
+            accelerator="cpu",
+        )
 
 
 def test_callbacks_are_appended(tmp_path: pathlib.Path):
