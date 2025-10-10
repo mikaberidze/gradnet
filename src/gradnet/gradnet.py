@@ -18,6 +18,19 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple, Union
 import warnings
+from contextlib import contextmanager
+
+
+@contextmanager
+def _suppress_torch_weights_warning():
+    """Silence torch's weights_only FutureWarning for trusted checkpoints."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"You are using `torch.load` with `weights_only=False`.*",
+            category=FutureWarning,
+        )
+        yield
 
 # ----------------------------------------------------------------------------
 # Global Helper Functions (dtype/device-safe)
@@ -747,7 +760,8 @@ class GradNet(nn.Module):
         map_location: Optional[Union[str, torch.device]] = "cpu",
     ) -> "GradNet":
         """Load a ``GradNet`` from a PyTorch Lightning checkpoint. Checkpoints are stored by fit."""
-        ckpt = torch.load(checkpoint_path, map_location=map_location)
+        with _suppress_torch_weights_warning():
+            ckpt = torch.load(checkpoint_path, map_location=map_location)
         config = ckpt.get("hyper_parameters", {}).get("gradnet_config")
         if config is None:
             raise ValueError("Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning.")
@@ -759,15 +773,16 @@ class GradNet(nn.Module):
         def _noop_loss_fn(_gn: "GradNet", **_):
             return torch.zeros((), device=model.device, dtype=model.dtype)
 
-        module = GradNetLightning.load_from_checkpoint(
-            checkpoint_path,
-            map_location=map_location,
-            gn=model,
-            loss_fn=_noop_loss_fn,
-            loss_kwargs={},
-            optim_cls=torch.optim.SGD,
-            optim_kwargs={"lr": 0.0},
-        )
+        with _suppress_torch_weights_warning():
+            module = GradNetLightning.load_from_checkpoint(
+                checkpoint_path,
+                map_location=map_location,
+                gn=model,
+                loss_fn=_noop_loss_fn,
+                loss_kwargs={},
+                optim_cls=torch.optim.SGD,
+                optim_kwargs={"lr": 0.0},
+            )
         return module.gn
 
     # --------------------- Internal helpers -----------------------------------

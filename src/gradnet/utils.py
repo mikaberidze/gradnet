@@ -3,6 +3,7 @@ import random
 import numpy as np
 import time
 import warnings
+import tempfile
 from functools import wraps
 from pathlib import Path
 import torch.linalg as LA
@@ -244,27 +245,56 @@ def animate_adjacency(
     ani = mpl_animation.FuncAnimation(fig, _update, frames=len(adjacencies), interval=1000.0 / fps)
 
     saved_path: Optional[Path] = None
-    if output_path:
-        saved_path = Path(output_path)
-        saved_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            from matplotlib.animation import FFMpegWriter
+    temporary_path: Optional[Path] = None
+    ffmpeg_error: Optional[Exception] = None
+    try:
+        from matplotlib.animation import FFMpegWriter
+    except Exception as exc:
+        ffmpeg_error = exc
+    else:
+        ffmpeg_error = None
+        target_path: Optional[Path]
+        if output_path:
+            target_path = Path(output_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            try:
+                tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+                tmp.close()
+                temporary_path = Path(tmp.name)
+                target_path = temporary_path
+            except Exception as exc:
+                warnings.warn(f"Unable to allocate temporary file for MP4 animation: {exc}")
+                target_path = None
 
-            ani.save(str(saved_path), writer=FFMpegWriter(fps=fps), dpi=dpi)
-        except Exception as exc:
-            warnings.warn(f"Failed to save animation to {saved_path}: {exc}")
-            saved_path = None
+        if target_path is not None:
+            try:
+                ani.save(str(target_path), writer=FFMpegWriter(fps=fps), dpi=dpi)
+                saved_path = target_path
+            except Exception as exc:
+                warnings.warn(f"Failed to save animation to {target_path}: {exc}")
+                if temporary_path and temporary_path.exists():
+                    temporary_path.unlink(missing_ok=True)
+                temporary_path = None
+                saved_path = None
+    if saved_path is None and output_path and ffmpeg_error is not None:
+        warnings.warn(f"FFMpeg writer unavailable; failed to create MP4 animation: {ffmpeg_error}")
 
     displayed = False
     try:
         from IPython.display import HTML, Video, display
 
         if saved_path and saved_path.exists():
+            # Embed MP4 first to minimize notebook size when possible.
             display(Video(str(saved_path), embed=True))
             displayed = True
         else:
-            display(HTML(ani.to_jshtml()))
-            displayed = True
+            try:
+                display(HTML(ani.to_html5_video()))
+                displayed = True
+            except Exception:
+                display(HTML(ani.to_jshtml()))
+                displayed = True
     except Exception:
         pass
 

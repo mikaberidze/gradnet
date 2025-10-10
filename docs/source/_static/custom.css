@@ -8,9 +8,9 @@
   max-width: 100% !important;
 }
 
-/* Keep hero animation at most 400px wide while allowing it to shrink on small screens */
-.figure.home-hero img {
-  max-width: 400px;
-  width: 100%;
-  height: auto;
+/* Hero media uses natural sizing */
+.figure.home-hero img,
+.figure.home-hero video {
+  display: block;
+  margin: 0 auto;
 }

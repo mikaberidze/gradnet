@@ -14,6 +14,7 @@ hand-rolling differentiable adjacency updates.
    :alt: A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.
    :align: center
    :class: home-hero
+   :width: 400px
 
    A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.
 
