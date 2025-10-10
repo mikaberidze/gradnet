@@ -176,7 +176,7 @@ def test_event_forward_stops_at_zero_crossing():
     x0 = torch.tensor([1.0])
     tt = torch.linspace(0.0, 2.0, steps=21)
 
-    tt_p, x_p = integrate_ode(A, vf, x0, tt, event_fn=event_fn)
+    tt_p, x_p, t_event, x_event = integrate_ode(A, vf, x0, tt, event_fn=event_fn)
 
     # last time equals event time and is about 1.0
     assert abs(tt_p[-1].item() - 1.0) < 1e-3

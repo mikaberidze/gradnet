@@ -8,7 +8,8 @@ from typing import Mapping, Optional
 
 
 
-def _random_seed(seed):
+def random_seed(seed):
+    '''Set random seed for reproducibility. Works with torch, numpy, and random.'''
     torch.use_deterministic_algorithms(True)
     torch.manual_seed(seed)
     np.random.seed(seed)

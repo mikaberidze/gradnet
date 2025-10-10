@@ -454,7 +454,7 @@ class GradNet(nn.Module):
                  mask = None,
                  adj0 = None,
                  delta_sign: str = "nonnegative",
-                 final_sign: str = "nonnegative",
+                 final_sign: str = "free",
                  undirected: bool = True,
                  rand_init_weights: Union[bool, float] = True,
                  use_budget_up: bool = True,
