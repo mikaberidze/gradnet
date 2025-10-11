@@ -52,14 +52,7 @@ def to_binary(images: np.ndarray) -> np.ndarray:
     return np.where(images > 0.5, 1.0, -1.0).astype(np.float32)
 
 
-def train_weights(
-    patterns: np.ndarray,
-    epochs: int = 200,
-    lr: float = 0.05,
-    dt: float = 0.25,
-    leak: float = 0.4,
-    weight_decay: float = 1e-4,
-) -> np.ndarray:
+def train_weights(patterns: np.ndarray, epochs: int = 300, lr: float = 0.1) -> np.ndarray:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch_patterns = torch.from_numpy(patterns).to(device)
 
@@ -81,27 +74,18 @@ def train_weights(
         cost_aggr_norm=2,
     ).to(device)
 
-    diag_mask = mask
     optimizer = torch.optim.Adam(gradnet.parameters(), lr=lr)
     gradnet.train()
     for _ in range(epochs):
         optimizer.zero_grad()
         adjacency = gradnet()
-        adjacency = 0.5 * (adjacency + adjacency.T)
-        adjacency = adjacency * diag_mask
-
-        update = torch_patterns + dt * (torch.matmul(torch_patterns, adjacency.T) - leak * torch_patterns)
-        relaxed = torch.clamp(update, -1.0, 1.0)
-        loss = F.mse_loss(relaxed, torch_patterns) + weight_decay * adjacency.pow(2).mean()
+        reconstructed = torch.matmul(torch_patterns, adjacency.T)
+        loss = F.mse_loss(reconstructed, torch_patterns)
         loss.backward()
         optimizer.step()
 
     gradnet.eval()
-    with torch.no_grad():
-        adjacency = gradnet()
-        adjacency = 0.5 * (adjacency + adjacency.T)
-        adjacency = adjacency * diag_mask
-    return adjacency.cpu().numpy()
+    return gradnet.to_numpy()
 
 
 def ensure_imageio_ffmpeg():
@@ -132,19 +116,17 @@ def colorize(frame: np.ndarray) -> np.ndarray:
 
 def save_animation(trajectories: list[np.ndarray], path: Path, fps: int = 10) -> None:
     imageio_ffmpeg = ensure_imageio_ffmpeg()
-    width = IMG_SHAPE[1]
+    width = IMG_SHAPE[1] * len(trajectories)
     height = IMG_SHAPE[0]
     writer = imageio_ffmpeg.write_frames(
         str(path), size=(width, height), fps=fps, macro_block_size=1
     )
     writer.send(None)
     try:
-        spacer = np.zeros(IMG_SHAPE, dtype=np.float32)
-        for traj in trajectories:
-            for frame in traj:
-                writer.send(colorize(frame))
-            for _ in range(3):
-                writer.send(colorize(spacer))
+        for step in range(trajectories[0].shape[0]):
+            panels = [colorize(traj[step]) for traj in trajectories]
+            frame = np.concatenate(panels, axis=1)
+            writer.send(frame)
     finally:
         writer.close()
 
@@ -164,12 +146,12 @@ def main() -> None:
     torch.manual_seed(0)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(0)
-    raw_images, labels = load_patterns(per_digit=1)
+    raw_images, labels = load_patterns()
     binary_patterns = to_binary(raw_images)
     weights = train_weights(binary_patterns)
 
     exemplars = [binary_patterns[np.where(labels == digit)[0][0]] for digit in range(5)]
-    noisy = [np.clip(pat + 0.4 * np.random.randn(NUM_PIXELS), -1.0, 1.0) for pat in exemplars]
+    noisy = [np.clip(pat + 0.6 * np.random.randn(NUM_PIXELS), -1.0, 1.0) for pat in exemplars]
     trajectories = [relax(weights, start) for start in noisy]
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
