@@ -214,6 +214,17 @@ class DenseParameterization(nn.Module):
     def dtype(self) -> torch.dtype:
         return self.delta_adj_raw.dtype
 
+    def degrees_of_freedom(self) -> int:
+        """Return an estimate of the active degrees of freedom."""
+        m = self.mask
+        if hasattr(m, "layout") and m.layout != torch.strided:
+            m = m.to_dense()
+        nz = int((m != 0).sum().item())
+        dof = int(nz / 2) if self.undirected else nz
+        if dof <= 0:
+            dof = self.num_nodes  # safe fallback to stay compatible with init logic
+        return dof
+
     def extra_repr(self) -> str:
         return (f"num_nodes={self.num_nodes}, budget={self.budget}, "
                 f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
@@ -248,34 +259,41 @@ class DenseParameterization(nn.Module):
         ``undirected``. This makes the initial magnitude less sensitive to the
         mask sparsity or graph size, improving optimization stability.
         """
-        # In dense encoding, simply count active mask entries; if undirected,
-        # approximate DOF by halving the count (i,j) and (j,i) pairs.
-        m = self.mask
-        if hasattr(m, "layout") and m.layout != torch.strided:
-            m = m.to_dense()
-        nz = int((m != 0).sum().item())
-        dof = int(nz / 2) if self.undirected else nz
-        if dof <= 0:
-            dof = self.num_nodes  # safe fallback
+        dof = self.degrees_of_freedom()
         eps = self.delta_adj_raw.new_tensor(1e-12)
         delta_adj_norm = torch.linalg.norm(self.delta_adj_raw)
         if delta_adj_norm <= eps:
             return  # avoid divide-by-zero
-        target = self.delta_adj_raw.new_tensor(float(dof)) ** 0.5  #! keep this note
+        target = self.delta_adj_raw.new_tensor(float(dof)) ** 0.5
         scale = target / torch.clamp(delta_adj_norm, min=eps)
         self.delta_adj_raw.mul_(scale)  # in-place scaling
 
     # --------- Build current delta ---------------------------------------------
-    def forward(self) -> torch.Tensor:
+    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
         """Project raw parameters to a constrained ``delta`` matrix.
 
         Applies optional symmetrization and positivity, then masks inactive
         entries and finally scales to match the cost-weighted p-norm budget.
+        When ``noise_amplitude > 0``, injects Gaussian noise with norm
+        ``sqrt(dof) * noise_amplitude`` before constraint handling.
+
+        Args:
+          noise_amplitude (float, optional): Multiplicative factor for the
+            Gaussian perturbation applied to ``delta_adj_raw``. Defaults to 0.
 
         Returns:
           torch.Tensor: Normalized perturbation matrix ``delta``.
         """
         delta = self.delta_adj_raw
+        amp = float(noise_amplitude)
+        if amp != 0.0:
+            noise = torch.randn_like(delta)
+            eps = delta.new_tensor(1e-12)
+            noise_norm = torch.linalg.norm(noise)
+            dof = max(1, self.degrees_of_freedom())
+            target = (delta.new_tensor(float(dof)) ** 0.5) * abs(amp)
+            noise = noise * (target / torch.clamp(noise_norm, min=eps))
+            delta = delta + noise
 
         if self.undirected:
             delta = symmetrize(delta)
@@ -380,6 +398,10 @@ class SparseParameterization(nn.Module):
     def dtype(self) -> torch.dtype:
         return self.delta_adj_raw.dtype
 
+    def degrees_of_freedom(self) -> int:
+        """Return the number of learnable edge weights (E)."""
+        return int(self.edge_index.shape[1])
+
     def extra_repr(self) -> str:
         E = int(self.edge_index.shape[1])
         return (f"num_nodes={self.num_nodes}, edges={E}, budget={self.budget}, "
@@ -410,22 +432,37 @@ class SparseParameterization(nn.Module):
         wnorm = torch.linalg.norm(self.delta_adj_raw)
         if wnorm <= eps:
             return
-        E = self.edge_index.shape[1]
-        target = self.delta_adj_raw.new_tensor(float(E)) ** 0.5  #! keep this note
+        dof = self.degrees_of_freedom()
+        target = self.delta_adj_raw.new_tensor(float(dof)) ** 0.5
         scale = target / torch.clamp(wnorm, min=eps)
         self.delta_adj_raw.mul_(scale)
 
-    def forward(self) -> torch.Tensor:
+    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
         """Project raw edge weights to a sparse, normalized ``delta``.
 
         Applies optional positivity in vector space, scales to match the
         cost-weighted p-norm budget, and constructs a COO matrix. In
-        undirected mode, edges are mirrored.
+        undirected mode, edges are mirrored. When ``noise_amplitude > 0``,
+        adds Gaussian noise with norm ``sqrt(dof) * noise_amplitude`` to the
+        raw edge weights before enforcing constraints.
+
+        Args:
+          noise_amplitude (float, optional): Multiplicative noise factor for
+            the raw edge weights. Defaults to 0.
 
         Returns:
           torch.Tensor: Coalesced sparse COO tensor of shape ``(N, N)``.
         """
         w = self.delta_adj_raw
+        amp = float(noise_amplitude)
+        if amp != 0.0:
+            noise = torch.randn_like(w)
+            eps = w.new_tensor(1e-12)
+            noise_norm = torch.linalg.norm(noise)
+            dof = max(1, self.degrees_of_freedom())
+            target = (w.new_tensor(float(dof)) ** 0.5) * abs(amp)
+            noise = noise * (target / torch.clamp(noise_norm, min=eps))
+            w = w + noise
 
         if self.delta_sign == "nonnegative":
             w = positivize(w)
@@ -474,8 +511,8 @@ class GradNet(nn.Module):
                  cost_matrix = None,
                  cost_aggr_norm: int = 1,
                  *,
-                device: Optional[str] = None,
-                dtype: Optional[str] = None):
+                 device: Optional[str] = None,
+                 dtype: Optional[str] = None):
         """Construct a GradNet instance.
 
         Args:
@@ -700,17 +737,29 @@ class GradNet(nn.Module):
         self.param.renorm_params()
 
     # --------- Build current delta / adjacency ---------------------------------
-    def get_delta_adj(self) -> torch.Tensor:
-        """Return the normalized perturbation matrix ``delta`` from the backend."""
-        return self.param()
+    def get_delta_adj(self, noise_amplitude: float = 0.0) -> torch.Tensor:
+        """Return the normalized perturbation matrix ``delta`` from the backend.
 
-    def forward(self) -> torch.Tensor:
+        Args:
+          noise_amplitude (float, optional): Standardized magnitude for the
+            stochastic perturbation applied to the raw parameters before
+            constraints. Defaults to 0 (deterministic).
+        """
+        return self.param(noise_amplitude=noise_amplitude)
+
+    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
         """Return the full adjacency ``A = adj0 + delta``.
 
         Handles dense/sparse combinations between ``adj0`` and ``delta`` and
-        returns either a dense or a sparse tensor accordingly.
+        returns either a dense or a sparse tensor accordingly. When
+        ``noise_amplitude > 0`` the same stochastic perturbation as
+        :meth:`get_delta_adj` is injected before constraints.
+
+        Args:
+          noise_amplitude (float, optional): Magnitude of the Gaussian noise
+            applied to ``delta_adj_raw`` prior to constraint handling.
         """
-        delta = self.get_delta_adj()
+        delta = self.get_delta_adj(noise_amplitude=noise_amplitude)
         A0 = self.adj0
         # Handle dense/sparse combinations
         if isinstance(A0, torch.Tensor) and A0.layout != torch.strided:

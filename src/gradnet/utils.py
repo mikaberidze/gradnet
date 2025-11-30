@@ -8,6 +8,7 @@ from functools import wraps
 from pathlib import Path
 import torch.linalg as LA
 from typing import Mapping, Optional, Union
+import csv
 
 
 
@@ -21,10 +22,75 @@ def random_seed(seed):
         torch.cuda.manual_seed(seed)
 
 
-def prune_edges(del_adj: torch.Tensor, threshold: float) -> torch.Tensor:
-    """Prunes edges in a given adjacency tensor based on a threshold value."""
+def prune_edges(
+    del_adj: torch.Tensor,
+    *,
+    threshold: Optional[float] = None,
+    target_edge_number: Optional[int] = None,
+    renorm: bool = True,
+) -> torch.Tensor:
+    """Prune edges in an adjacency-like tensor.
+
+    Use either a numeric ``threshold`` (keeps entries with ``abs(x) >= threshold``)
+    or specify ``target_edge_number`` to automatically determine a threshold that
+    yields exactly that many unpruned entries. Exactly one of these must be
+    provided.
+
+    If ``renorm`` is True, rescales the pruned tensor to match the original L1
+    norm. If all entries are pruned, returns an all-zero tensor.
+    """
+    # Validate mutually exclusive arguments
+    if (threshold is None) == (target_edge_number is None):
+        raise ValueError("Provide exactly one of 'threshold' or 'target_edge_number'.")
+
+    # Determine threshold via target count if requested
+    if threshold is None:
+        k = int(target_edge_number)  # type: ignore[arg-type]
+        abs_vals = torch.abs(del_adj).reshape(-1)
+        # Consider only strictly positive magnitudes so zeros are always pruned
+        pos_vals = abs_vals[abs_vals > 0]
+        M = int(pos_vals.numel())
+        if k < 0 or k > M:
+            raise ValueError(
+                f"target_edge_number must be between 0 and {M} for the given tensor; got {k}."
+            )
+        if M == 0:
+            # Nothing to keep regardless of k; everything is zero already
+            pruned = torch.zeros_like(del_adj)
+            return pruned
+
+        # Handle boundary cases explicitly
+        if k == 0:
+            # Threshold above the maximum magnitude prunes everything
+            vmax = pos_vals.max().item()
+            # Use machine epsilon for floating tensors; fall back to small constant otherwise
+            try:
+                eps = float(torch.finfo(pos_vals.dtype).eps)
+            except TypeError:
+                eps = 1e-12
+            threshold = vmax + eps
+        elif k == M:
+            # Keep everything with positive magnitude
+            threshold = pos_vals.min().item()
+        else:
+            # Find a threshold in (v_{k+1}, v_k] to keep exactly k entries.
+            # Sort magnitudes descending and examine neighbors around k.
+            sorted_vals = torch.sort(pos_vals, descending=True).values
+            v_k = sorted_vals[k - 1].item()
+            v_next = sorted_vals[k].item()
+            if v_k == v_next:
+                # Exact k is impossible due to ties at the boundary
+                raise ValueError(
+                    "Cannot achieve the requested target_edge_number exactly due to "
+                    "duplicate magnitudes at the pruning boundary."
+                )
+            threshold = (v_k + v_next) / 2.0
+
+    # Apply pruning using the resolved threshold
     norm = torch.abs(del_adj).sum()
-    pruned = torch.where(torch.abs(del_adj) < threshold, torch.zeros_like(del_adj), del_adj)
+    pruned = torch.where(torch.abs(del_adj) < float(threshold), torch.zeros_like(del_adj), del_adj)
+    if not renorm:
+        return pruned
     pruned_norm = torch.abs(pruned).sum()
     if pruned_norm < 1e-12:  # all edges pruned
         return torch.zeros_like(del_adj)
@@ -187,6 +253,155 @@ def plot_graph(
     return net
 
 
+def load_scalars(log_dir: Union[str, Path]):
+    """Return shared steps and a dict of scalar series from Lightning logs.
+
+    The ``log_dir`` can be either a specific version directory
+    (e.g., ``lightning_logs/gradnet/version_3``) or the parent folder that
+    contains multiple ``version_*`` subdirectories (e.g.,
+    ``lightning_logs/gradnet``). This function prefers CSV logs when present
+    and falls back to TensorBoard event files if available.
+
+    Returns ``(steps, series)`` where ``steps`` is a single list of integers
+    (epoch/step) shared by all metrics, and ``series`` is a mapping
+    ``{name: values}`` with values aligned to ``steps``. Missing values are
+    filled with ``nan``.
+
+    Usage:
+        >>> steps, series = load_scalar_series('lightning_logs/gradnet')
+        >>> loss = series['loss']
+
+    :param log_dir: Path to a logger directory or its parent.
+    :return: tuple[list[int], dict[str, list[float]]]
+    """
+    root = Path(log_dir)
+
+    def _is_version_dir(p: Path) -> bool:
+        if not p.is_dir():
+            return False
+        if (p / 'metrics.csv').exists():
+            return True
+        for f in p.iterdir():
+            if f.is_file() and f.name.startswith('events.out.tfevents'):
+                return True
+        return False
+
+    def _find_version_dir(base: Path) -> Path:
+        if _is_version_dir(base):
+            return base
+        candidates = [d for d in base.iterdir() if d.is_dir() and d.name.startswith('version')]
+        if not candidates:
+            return base  # best effort; may still contain event files directly
+        def _ver_num(p: Path) -> int:
+            name = p.name
+            try:
+                return int(name.split('_')[-1])
+            except Exception:
+                return -1
+        candidates.sort(key=lambda p: (_ver_num(p), p.stat().st_mtime))
+        return candidates[-1]
+
+    version_dir = _find_version_dir(root)
+
+    # 1) Try CSV (CSVLogger)
+    csv_path = version_dir / 'metrics.csv'
+    if csv_path.exists():
+        # aggregate rows per x (epoch preferred, else step/global_step, else row index)
+        per_x: dict[int, dict[str, float]] = {}
+        metric_names: set[str] = set()
+        next_row_index = 0
+        with csv_path.open(newline='') as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            long_format = ('metric' in fieldnames and 'value' in fieldnames)
+            for row in reader:
+                # compute x for this row
+                epoch = row.get('epoch')
+                step = row.get('step') or row.get('global_step')
+                x: Optional[int] = None
+                for cand in (epoch, step):
+                    if cand is not None and str(cand) != '':
+                        try:
+                            x = int(float(cand))
+                            break
+                        except Exception:
+                            pass
+                if x is None:
+                    x = next_row_index
+                next_row_index += 1
+
+                if long_format:
+                    name = row.get('metric')
+                    val = row.get('value')
+                    if name is None or val is None or val == '' or str(val).lower() == 'nan':
+                        continue
+                    try:
+                        v = float(val)
+                    except Exception:
+                        continue
+                    metric_names.add(name)
+                    per_x.setdefault(x, {})[name] = v
+                else:
+                    # wide format: one row per x, multiple metric columns
+                    for name, val in row.items():
+                        if name in {"epoch", "step", "global_step", "time", "created_at"}:
+                            continue
+                        if val is None or val == '' or str(val).lower() == 'nan':
+                            continue
+                        try:
+                            v = float(val)
+                        except Exception:
+                            continue
+                        metric_names.add(name)
+                        per_x.setdefault(x, {})[name] = v
+
+        if not per_x:
+            return [], {}
+        steps = sorted(per_x.keys())
+        # Build aligned series with NaNs for missing values
+        series: dict[str, list[float]] = {name: [float('nan')] * len(steps) for name in sorted(metric_names)}
+        index_of = {s: i for i, s in enumerate(steps)}
+        for s, vals in per_x.items():
+            i = index_of[s]
+            for name, v in vals.items():
+                series[name][i] = float(v)
+        return steps, series
+
+    # 2) Try TensorBoard events (TensorBoardLogger)
+    try:
+        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator  # type: ignore
+    except Exception:
+        # tensorboard not available and no CSV found
+        raise RuntimeError(
+            f"No metrics.csv found in '{version_dir}' and 'tensorboard' is not installed. "
+            "Install it with `pip install tensorboard`, or enable CSVLogger."
+        )
+
+    # If the provided directory is not a version dir, EventAccumulator can still
+    # discover event files within it.
+    ea = EventAccumulator(str(version_dir), size_guidance={'scalars': 0})
+    ea.Reload()
+    scalar_tags = list(ea.Tags().get('scalars', []))
+    if not scalar_tags:
+        return [], {}
+    # unify steps across all tags
+    step_set: set[int] = set()
+    per_tag_events: dict[str, list] = {}
+    for tag in scalar_tags:
+        ev = ea.Scalars(tag)
+        per_tag_events[tag] = ev
+        for e in ev:
+            step_set.add(int(e.step))
+    steps = sorted(step_set)
+    idx = {s: i for i, s in enumerate(steps)}
+    series: dict[str, list[float]] = {tag: [float('nan')] * len(steps) for tag in scalar_tags}
+    for tag, ev in per_tag_events.items():
+        for e in ev:
+            ii = idx[int(e.step)]
+            series[tag][ii] = float(e.value)
+    return steps, series
+
+
 def animate_adjacency(
     checkpoints: Union[str, Path],
     *,
@@ -319,7 +534,7 @@ def positions_to_distance_matrix(positions: torch.Tensor, norm: float = 2.0):
     return LA.vector_norm(diff, ord=norm, dim=-1)
 
 
-def reg_loss(del_adj: torch.Tensor) -> torch.Tensor:
+def regularization_loss(del_adj: torch.Tensor) -> torch.Tensor:
     """
     Regularization loss for sparsifying the delta adjacency.
     Computes sum(sigmoid(abs(del_adj))).
@@ -349,7 +564,6 @@ def _to_like_struct(obj, like: torch.Tensor):
         typ = obj.__class__
         return typ(_to_like_struct(v, like) for v in obj)
     return obj  # nn.Module or anything else stays as-is 
-
 
 def _shortest_path(A: torch.Tensor, pair="full"):
     """Compute shortest path distances with SciPy and preserve Torch grads.

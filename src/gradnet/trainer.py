@@ -245,26 +245,32 @@ def _resolve_logger(
     logger: LightningLoggerBase | bool | None,
     *,
     verbose: bool,
+    log_dir: Optional[str] = None,
 ) -> LightningLoggerBase | bool:
     """Return a Lightning logger instance or ``False``.
 
     When ``logger`` is ``True`` this attempts to build a ``TensorBoardLogger``
-    and falls back to ``CSVLogger`` if TensorBoard is unavailable. Logging is
-    disabled when ``verbose`` is ``False`` to mirror the previous behaviour.
+    and falls back to ``CSVLogger`` if TensorBoard is unavailable.
     """
-    if not verbose:
-        return False
-
     if isinstance(logger, LightningLoggerBase):
         return logger
 
     if not logger:  # covers False and None
         return False
 
+    # determine save_dir and name based on provided `log_dir` or defaults
+    if log_dir is None:
+        save_dir, name = "lightning_logs", "gradnet"
+    else:
+        # treat `log_dir` as the final directory path (e.g., "./lightning_logs/gradnet")
+        # and split into (parent, basename) for Lightning loggers
+        norm = os.path.normpath(log_dir)
+        save_dir, name = os.path.dirname(norm) or ".", os.path.basename(norm) or "gradnet"
+
     try:
         from pytorch_lightning.loggers import TensorBoardLogger
 
-        return TensorBoardLogger(save_dir="lightning_logs", name="gradnet")
+        return TensorBoardLogger(save_dir=save_dir, name=name)
     except Exception as exc:  # pragma: no cover - depends on optional dependency
         warnings.warn(
             "TensorBoard logger unavailable; using CSVLogger instead. "
@@ -274,7 +280,7 @@ def _resolve_logger(
         )
         from pytorch_lightning.loggers import CSVLogger
 
-        return CSVLogger(save_dir="lightning_logs", name="gradnet")
+        return CSVLogger(save_dir=save_dir, name=name)
 
 
 def fit(
@@ -292,6 +298,7 @@ def fit(
     accelerator: str = "auto",
     # logging/ckpt
     logger: LightningLoggerBase | bool | None = False,
+    log_dir: Optional[str] = None,
     enable_checkpointing: bool = False,
     checkpoint_dir: Optional[str] = None,
     checkpoint_every_n: Optional[int] = None,
@@ -350,6 +357,12 @@ def fit(
         default logger (falls back to ``CSVLogger`` when TensorBoard is
         unavailable), ``False`` to disable logging, or supply a Lightning logger
         instance.
+    log_dir : str | None, optional
+        When ``logger`` is ``True`` (request default logging), use this directory
+        for logs. Treats the value as the final directory path (e.g.,
+        ``"./lightning_logs/gradnet"``). When ``None``, defaults to
+        ``"./lightning_logs/gradnet"``. Ignored when a custom ``logger`` instance
+        is provided or logging is disabled.
     enable_checkpointing : bool, optional
         Enable the default ``ModelCheckpoint`` callback. When ``True`` it
         monitors ``loss`` in ``min`` mode to keep the best checkpoint, can store
@@ -449,6 +462,9 @@ def fit(
             mode="min",
             save_top_k=1,
             save_last=save_last,
+            # Explicitly mark metric-based checkpoint as non-periodic
+            # so tests (and behavior across PL versions) see None here
+            every_n_epochs=None,
             auto_insert_metric_name=False,
         )
         cb.append(ckpt)
@@ -478,7 +494,7 @@ def fit(
             prev_levels[name] = lg.level
             lg.setLevel(logging.ERROR)
 
-    trainer_logger = _resolve_logger(logger, verbose=verbose)
+    trainer_logger = _resolve_logger(logger, verbose=verbose, log_dir=log_dir)
 
     trainer = pl.Trainer(
         max_epochs=int(num_updates),

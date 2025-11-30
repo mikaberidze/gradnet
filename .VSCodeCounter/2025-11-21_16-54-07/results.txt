@@ -1,0 +1,106 @@
+Date : 2025-11-21 16:54:07
+Directory : /Users/guga/D/University/UWyo/Network_Optimization/gradnet
+Total : 53 files,  7035 codes, 998 comments, 1152 blanks, all 9185 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| JSON             |         13 |      3,751 |          0 |         48 |      3,799 |
+| Python           |         11 |      2,780 |        922 |        500 |      4,202 |
+| reStructuredText |         16 |        219 |         55 |        536 |        810 |
+| JavaScript       |          4 |         69 |          6 |         10 |         85 |
+| Markdown         |          1 |         65 |          0 |         23 |         88 |
+| toml             |          1 |         53 |          0 |          7 |         60 |
+| YAML             |          2 |         33 |          2 |          9 |         44 |
+| Batch            |          1 |         26 |          1 |          9 |         36 |
+| PostCSS          |          2 |         25 |          4 |          4 |         33 |
+| Makefile         |          1 |          9 |          7 |          5 |         21 |
+| pip requirements |          1 |          5 |          1 |          1 |          7 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++--------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                           | files      | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                              |         53 |      7,035 |        998 |      1,152 |      9,185 |
+| . (Files)                                                                                                                      |          3 |        130 |          2 |         33 |        165 |
+| .github                                                                                                                        |          1 |         21 |          0 |          6 |         27 |
+| .github/workflows                                                                                                              |          1 |         21 |          0 |          6 |         27 |
+| .virtual_documents                                                                                                             |          1 |         50 |          0 |         36 |         86 |
+| .virtual_documents/examples                                                                                                    |          1 |         50 |          0 |         36 |         86 |
+| docs                                                                                                                           |         30 |      1,889 |        127 |        612 |      2,628 |
+| docs (Files)                                                                                                                   |          3 |         40 |          9 |         15 |         64 |
+| docs/source                                                                                                                    |         27 |      1,849 |        118 |        597 |      2,564 |
+| docs/source (Files)                                                                                                            |          3 |        321 |         59 |         70 |        450 |
+| docs/source/_autosummary                                                                                                       |          8 |         99 |         33 |        480 |        612 |
+| docs/source/_static                                                                                                            |          6 |         94 |         10 |         14 |        118 |
+| docs/source/_templates                                                                                                         |          1 |         27 |          6 |          8 |         41 |
+| docs/source/_templates/autosummary                                                                                             |          1 |         27 |          6 |          8 |         41 |
+| docs/source/api                                                                                                                |          5 |         31 |         10 |         21 |         62 |
+| docs/source/tutorials                                                                                                          |          4 |      1,277 |          0 |          4 |      1,281 |
+| examples                                                                                                                       |          9 |      2,424 |          0 |          9 |      2,433 |
+| src                                                                                                                            |          5 |      1,474 |        764 |        230 |      2,468 |
+| src/gradnet                                                                                                                    |          5 |      1,474 |        764 |        230 |      2,468 |
+| tests                                                                                                                          |          4 |      1,047 |        105 |        226 |      1,378 |
++--------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++--------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                                                                       | language         | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/.github/workflows/package-smoke.yml                                 | YAML             |         21 |          0 |          6 |         27 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/.readthedocs.yaml                                                   | YAML             |         12 |          2 |          3 |         17 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/.virtual_documents/examples/1_algebraic_connectivity.ipynb          | JSON             |         50 |          0 |         36 |         86 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/README.md                                                           | Markdown         |         65 |          0 |         23 |         88 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/Makefile                                                       | Makefile         |          9 |          7 |          5 |         21 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/make.bat                                                       | Batch            |         26 |          1 |          9 |         36 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/requirements.txt                                               | pip requirements |          5 |          1 |          1 |          7 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.GradNet.rst                        | reStructuredText |         14 |          6 |        165 |        185 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.gradnet.DenseParameterization.rst  | reStructuredText |          9 |          6 |        145 |        160 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.gradnet.GradNet.rst                | reStructuredText |         59 |          7 |         17 |         83 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.gradnet.SparseParameterization.rst | reStructuredText |          9 |          6 |        145 |        160 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.integrate_ode.rst                  | reStructuredText |          2 |          2 |          2 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.ode.integrate_ode.rst              | reStructuredText |          2 |          2 |          2 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.trainer.fit.rst                    | reStructuredText |          2 |          2 |          2 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_autosummary/gradnet.trainer.fit_gradnet.rst            | reStructuredText |          2 |          2 |          2 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/analytics.js                                    | JavaScript       |          4 |          0 |          2 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/custom.css                                      | PostCSS          |         11 |          3 |          3 |         17 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/download.js                                     | JavaScript       |         59 |          6 |          6 |         71 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/download_data.js                                | JavaScript       |          1 |          0 |          1 |          2 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/hide_versions.css                               | PostCSS          |         14 |          1 |          1 |         16 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_static/hide_versions.js                                | JavaScript       |          5 |          0 |          1 |          6 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/_templates/autosummary/class.rst                        | reStructuredText |         27 |          6 |          8 |         41 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/api/fit.rst                                             | reStructuredText |          5 |          2 |          4 |         11 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/api/gradnet.rst                                         | reStructuredText |          9 |          3 |          6 |         18 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/api/integrate_ode.rst                                   | reStructuredText |          4 |          2 |          4 |         10 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/api/trainer.rst                                         | reStructuredText |          6 |          2 |          4 |         12 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/api/utils.rst                                           | reStructuredText |          7 |          1 |          3 |         11 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/conf.py                                                 | Python           |        259 |         53 |         43 |        355 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/getting-started.rst                                     | reStructuredText |         23 |          0 |         10 |         33 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/index.rst                                               | reStructuredText |         39 |          6 |         17 |         62 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/tutorials/1_algebraic_connectivity.ipynb                | JSON             |        395 |          0 |          1 |        396 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/tutorials/2_kuramoto.ipynb                              | JSON             |        268 |          0 |          1 |        269 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/tutorials/3_karate_club.ipynb                           | JSON             |        199 |          0 |          1 |        200 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/docs/source/tutorials/4_network_reconstruction.ipynb                | JSON             |        415 |          0 |          1 |        416 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/#_digit_recognition.py                                     | Python           |          0 |          0 |          1 |          1 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/#_efficiency.ipynb                                         | JSON             |        184 |          0 |          1 |        185 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/#_mean_shortest_path.ipynb                                 | JSON             |        168 |          0 |          1 |        169 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/#_resistance_distance.ipynb                                | JSON             |        272 |          0 |          1 |        273 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/1_algebraic_connectivity.ipynb                             | JSON             |        395 |          0 |          1 |        396 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/2_kuramoto.ipynb                                           | JSON             |        268 |          0 |          1 |        269 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/3_karate_club.ipynb                                        | JSON             |        199 |          0 |          1 |        200 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/4_network_reconstruction.ipynb                             | JSON             |        415 |          0 |          1 |        416 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/examples/5_quantum_internet.ipynb                                   | JSON             |        523 |          0 |          1 |        524 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/pyproject.toml                                                      | toml             |         53 |          0 |          7 |         60 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/src/gradnet/__init__.py                                             | Python           |         27 |          3 |          6 |         36 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/src/gradnet/gradnet.py                                              | Python           |        583 |        305 |         82 |        970 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/src/gradnet/ode.py                                                  | Python           |        110 |        123 |         23 |        256 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/src/gradnet/trainer.py                                              | Python           |        259 |        216 |         46 |        521 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/src/gradnet/utils.py                                                | Python           |        495 |        117 |         73 |        685 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/tests/test_gradnet.py                                               | Python           |        384 |         37 |         57 |        478 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/tests/test_ode.py                                                   | Python           |        218 |         29 |         81 |        328 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/tests/test_trainer.py                                               | Python           |        292 |         11 |         53 |        356 |
+| /Users/guga/D/University/UWyo/Network_Optimization/gradnet/tests/test_utils_shortest_path.py                                   | Python           |        153 |         28 |         35 |        216 |
+| Total                                                                                                                          |                  |      7,035 |        998 |      1,152 |      9,185 |
++--------------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
