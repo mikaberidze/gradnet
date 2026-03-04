@@ -186,6 +186,88 @@ def test_event_forward_stops_at_zero_crossing():
     assert torch.all(tt_p[1:] >= tt_p[:-1])
 
 
+def test_event_caps_output_time_when_event_occurs_before_t_end():
+    # x' = 1, x(0)=0 -> x(t)=t. Event when x hits x_target (x_target - x == 0).
+    def vf(t, x, A, x_target):
+        return torch.ones_like(x)
+
+    def event_fn(t, x, A, x_target):
+        return x_target - x[0]
+
+    A = torch.tensor([[0.0]])
+    x0 = torch.tensor([0.0])
+    tt = torch.linspace(0.0, 1.0, steps=11)
+    x_target = 0.4
+
+    tt_p, x_p, t_event, x_event = integrate_ode(
+        A, vf, x0, tt, f_kwargs={"x_target": x_target}, event_fn=event_fn
+    )
+
+    assert tt_p[-1].item() < tt[-1].item()
+    assert abs(tt_p[-1].item() - x_target) < 2e-3
+    assert abs(t_event.item() - x_target) < 2e-3
+    assert abs(x_p[-1, 0].item() - x_target) < 2e-3
+    assert abs(x_event[0].item() - x_target) < 2e-3
+
+
+def test_event_caps_output_time_when_no_event_before_t_end():
+    # x' = 1, x(0)=0 -> x(t)=t. Set x_target beyond t_end so no event occurs.
+    def vf(t, x, A, x_target):
+        return torch.ones_like(x)
+
+    def event_fn(t, x, A, x_target):
+        return x_target - x[0]
+
+    A = torch.tensor([[0.0]])
+    x0 = torch.tensor([0.0])
+    tt = torch.linspace(0.0, 1.0, steps=11)
+    x_target = 2.0
+
+    tt_p, x_p, t_event, x_event = integrate_ode(
+        A, vf, x0, tt, f_kwargs={"x_target": x_target}, event_fn=event_fn
+    )
+
+    assert abs(tt_p[-1].item() - tt[-1].item()) < 1e-7
+    assert abs(t_event.item() - tt[-1].item()) < 1e-7
+    assert tt_p.shape == tt.shape and torch.allclose(tt_p, tt)
+    assert abs(x_p[-1, 0].item() - tt[-1].item()) < 2e-3
+    assert abs(x_event[0].item() - tt[-1].item()) < 2e-3
+
+
+def test_event_no_t1_support_still_stops_at_t_end(monkeypatch):
+    # Simulate an older torchdiffeq.odeint_event that rejects `t1`.
+    import torchdiffeq
+
+    orig_odeint_event = torchdiffeq.odeint_event
+
+    def patched_odeint_event(*args, **kwargs):
+        if "t1" in kwargs:
+            raise TypeError("odeint_event() got an unexpected keyword argument 't1'")
+        return orig_odeint_event(*args, **kwargs)
+
+    monkeypatch.setattr(torchdiffeq, "odeint_event", patched_odeint_event)
+
+    # x' = 1, x(0)=0 -> x(t)=t. Target beyond t_end so the event never triggers.
+    def vf(t, x, A, x_target):
+        return torch.ones_like(x)
+
+    def event_fn(t, x, A, x_target):
+        return x_target - x[0]
+
+    A = torch.tensor([[0.0]])
+    x0 = torch.tensor([0.0])
+    tt = torch.linspace(0.0, 1.0, steps=11)
+    x_target = 2.0
+
+    tt_p, x_p, t_event, x_event = integrate_ode(
+        A, vf, x0, tt, f_kwargs={"x_target": x_target}, event_fn=event_fn
+    )
+
+    assert abs(tt_p[-1].item() - tt[-1].item()) < 1e-7
+    assert abs(t_event.item() - tt[-1].item()) < 1e-7
+    assert abs(x_event[0].item() - tt[-1].item()) < 2e-3
+
+
 def test_track_gradients_flag_controls_requires_grad():
     mod = _AModule(a=0.123)
 

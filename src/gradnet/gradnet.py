@@ -384,7 +384,7 @@ class SparseParameterization(nn.Module):
         if use_budget_up: 
             unif = torch.ones((E,), device=device, dtype=dtype)
         else:
-            unif = torch.zerps((E,), device=device, dtype=dtype)
+            unif = torch.zeros((E,), device=device, dtype=dtype)
         rnd = torch.rand((E,), device=device, dtype=dtype)
         # Reverse semantics so a controls randomness: a=1 -> random, a=0 -> ones
         w0 = (1.0 - a) * unif + a * rnd
@@ -427,13 +427,19 @@ class SparseParameterization(nn.Module):
 
     @torch.no_grad()
     def renorm_params(self):
-        """Scale raw edge parameters to a constant norm (``~sqrt(E)``)."""
+        """Scale raw edge parameters to a backend-aligned constant norm.
+
+        Directed mode uses ``sqrt(E)`` for ``E`` learnable edges.
+        Undirected mode uses ``sqrt(E/2)`` so the per-directed-entry raw scale
+        matches the dense backend after post-step renormalization.
+        """
         eps = self.delta_adj_raw.new_tensor(1e-12)
         wnorm = torch.linalg.norm(self.delta_adj_raw)
         if wnorm <= eps:
             return
         dof = self.degrees_of_freedom()
-        target = self.delta_adj_raw.new_tensor(float(dof)) ** 0.5
+        eff_dof = float(dof) * (0.5 if self.undirected else 1.0)
+        target = self.delta_adj_raw.new_tensor(max(eff_dof, 1e-12)) ** 0.5
         scale = target / torch.clamp(wnorm, min=eps)
         self.delta_adj_raw.mul_(scale)
 
@@ -496,8 +502,25 @@ class GradNet(nn.Module):
 
     This thin wrapper owns the mask, cost matrix, and base adjacency ``adj0``,
     and delegates the trainable parameters to either a dense or sparse
-    parameterization depending on mask layout and size.
+    parameterization depending on mask layout.
     """
+    @staticmethod
+    def _is_sparse_tensor(x: object) -> bool:
+        """Return ``True`` when ``x`` is a non-strided PyTorch tensor."""
+        return isinstance(x, torch.Tensor) and x.layout != torch.strided
+
+    @staticmethod
+    def _make_sparse_zero_matrix(
+        shape: Tuple[int, int],
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Create a coalesced sparse COO all-zero matrix."""
+        idx = torch.empty((2, 0), dtype=torch.long, device=device)
+        vals = torch.empty((0,), dtype=dtype, device=device)
+        return torch.sparse_coo_tensor(idx, vals, shape, device=device, dtype=dtype).coalesce()
+
     def __init__(self,
                  num_nodes: int,
                  budget: float,
@@ -519,11 +542,10 @@ class GradNet(nn.Module):
           num_nodes (int): Number of nodes (matrix dimension).
           budget (float): Target cost-weighted p-norm of the perturbation.
           mask (torch.Tensor | None, optional): Active-entry mask. Dense masks
-            result in a dense parameterization; sparse COO masks may trigger a
-            sparse backend if sufficiently small. If ``None``, defaults to
-            all-ones off-diagonal.
+            result in a dense parameterization; sparse COO masks use the sparse
+            backend. If ``None``, defaults to all-ones off-diagonal.
           adj0 (torch.Tensor | None, optional): Base adjacency. If ``None``,
-            uses zeros.
+            uses a zero matrix matching the selected backend layout.
           delta_sign (str, optional): Sign constraint for ``delta``. One of
             ``{"free", "nonnegative", "nonpositive"}``.
           final_sign (str, optional): Sign constraint applied to the returned
@@ -537,7 +559,9 @@ class GradNet(nn.Module):
           use_budget_up (bool, optional): If ``True``, always scale up to the
             budget.
           cost_matrix (torch.Tensor | None, optional): Per-entry costs for
-            normalization; defaults to ones.
+            normalization; defaults to ones. In sparse backend mode, omitted
+            costs remain implicit (unit costs) and no dense default matrix is
+            materialized.
           cost_aggr_norm (int, optional): Aggregation norm ``p`` for the
             cost-weighted p-norm.
           device (torch.device | str | None, optional): Target device for
@@ -624,20 +648,28 @@ class GradNet(nn.Module):
             if mask_buf.ndim >= 2 and mask_buf.shape[-1] == mask_buf.shape[-2]:
                 mask_buf.fill_diagonal_(0)
         self.register_buffer("mask", mask_buf)
+        use_sparse_backend = self._is_sparse_tensor(self.mask)
 
         # Default cost_matrix: ones
-        cost_buf = _coerce(cost_matrix, lambda: torch.ones((N, N), device=dev, dtype=dt))
+        if cost_matrix is None and use_sparse_backend:
+            # Sparse backend can keep unit costs implicit via _prepare_edge_list(..., cost_matrix=None).
+            cost_buf = None
+        else:
+            cost_buf = _coerce(cost_matrix, lambda: torch.ones((N, N), device=dev, dtype=dt))
         self.register_buffer("cost_matrix", cost_buf)
 
-        # Default adj0: zeros
-        adj0_buf = _coerce(adj0, lambda: torch.zeros((N, N), device=dev, dtype=dt))
+        # Default adj0: zeros (layout follows backend choice)
+        if adj0 is None and use_sparse_backend:
+            adj0_buf = self._make_sparse_zero_matrix((N, N), device=dev, dtype=dt)
+        else:
+            adj0_buf = _coerce(adj0, lambda: torch.zeros((N, N), device=dev, dtype=dt))
         self.register_buffer("adj0", adj0_buf)
 
         # ---- Parameterization submodule ---------------------------------------
-        if isinstance(self.mask, torch.Tensor) and self.mask.layout != torch.strided:
+        if use_sparse_backend:
             edge_index, cost_p_sum = self._prepare_edge_list(
                 mask=self.mask,
-                cost_matrix=self.cost_matrix if cost_matrix is not None else None,
+                cost_matrix=self.cost_matrix,
                 undirected=self.undirected,
                 p=self.cost_aggr_norm,
                 dtype=dt,

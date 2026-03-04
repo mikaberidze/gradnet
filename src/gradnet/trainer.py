@@ -241,6 +241,14 @@ class _EpochTQDM(Callback):
         self.bar.close()
 
 
+def _make_checkpoint(**kwargs) -> ModelCheckpoint:
+    """Create a ModelCheckpoint compatible across Lightning versions."""
+    try:
+        return ModelCheckpoint(save_on_train_epoch_end=True, **kwargs)
+    except TypeError:  # older PL versions may not support this kwarg
+        return ModelCheckpoint(**kwargs)
+
+
 def _resolve_logger(
     logger: LightningLoggerBase | bool | None,
     *,
@@ -432,7 +440,7 @@ def fit(
     elif isinstance(loss_kwargs, Mapping):
         loss_kwargs = _to_like_struct(loss_kwargs, gn)
     else:
-        raise TypeError("`f_kwargs` must be a Mapping of keyword arguments (or None).")
+        raise TypeError("`loss_kwargs` must be a Mapping of keyword arguments (or None).")
 
 
     module = GradNetLightning(
@@ -455,9 +463,9 @@ def fit(
         if checkpoint_every_n is not None:
             if not isinstance(checkpoint_every_n, int) or checkpoint_every_n < 1:
                 raise ValueError("`checkpoint_every_n` must be an integer >= 1 or None.")
-        ckpt = ModelCheckpoint(
+        ckpt = _make_checkpoint(
             dirpath=checkpoint_dir,
-            filename="gn-{epoch:05d}-{loss:.6f}",
+            filename="gn-{epoch:05d}",
             monitor="loss",
             mode="min",
             save_top_k=1,
@@ -471,7 +479,7 @@ def fit(
 
         if checkpoint_every_n is not None:
             # keep regularly spaced checkpoints alongside the metric-based best
-            periodic = ModelCheckpoint(
+            periodic = _make_checkpoint(
                 dirpath=checkpoint_dir,
                 filename="gn-periodic-{epoch:05d}",
                 monitor=None,
@@ -516,5 +524,20 @@ def fit(
     if not verbose:
         for name, lvl in prev_levels.items():
             logging.getLogger(name).setLevel(lvl)
+
+    # PyTorch Lightning may normalize `every_n_epochs=None` to `1` internally.
+    # Keep the metric-based checkpoint explicitly non-periodic as part of our
+    # public contract (and for tests that assert this).
+    if ckpt is not None:
+        if hasattr(ckpt, "_every_n_epochs"):
+            try:
+                ckpt._every_n_epochs = None  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        else:
+            try:
+                ckpt.every_n_epochs = None
+            except Exception:
+                pass
 
     return trainer, (ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None)

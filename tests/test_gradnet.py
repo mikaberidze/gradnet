@@ -384,6 +384,39 @@ def test_prepare_edge_list_none_cost_returns_unit_weights():
     assert torch.allclose(cost_p_sum, torch.full((edge_index.shape[1],), 2.0))
 
 
+def test_sparse_mask_defaults_use_sparse_adj0_and_implicit_unit_costs():
+    N = 4
+    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.long)
+    mask_val = torch.ones(mask_idx.shape[1], dtype=torch.float32)
+    mask_sp = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
+
+    gn = GradNet(
+        num_nodes=N,
+        budget=1.0,
+        mask=mask_sp,
+        adj0=None,
+        cost_matrix=None,
+        undirected=True,
+        rand_init_weights=False,
+        use_budget_up=True,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    assert isinstance(gn.param, SparseParameterization)
+    assert gn.mask.layout == torch.sparse_coo
+    assert gn.adj0.layout == torch.sparse_coo
+    assert gn.adj0._nnz() == 0
+    assert gn.cost_matrix is None
+
+    # Sparse zero adj0 + sparse delta should keep the forward result sparse.
+    A = gn()
+    assert A.layout == torch.sparse_coo
+
+    # With implicit unit costs and undirected=True, each unique edge gets 1^p + 1^p = 2.
+    assert torch.allclose(gn.param.cost_p_sum, torch.full_like(gn.param.cost_p_sum, 2.0))
+
+
 def test_gradnet_export_and_from_config_roundtrip():
     mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
     adj0 = torch.tensor([[0.0, 0.5], [0.5, 0.0]])

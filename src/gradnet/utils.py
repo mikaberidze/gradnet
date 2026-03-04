@@ -158,12 +158,14 @@ def plot_adjacency_heatmap(
     xlabel: str = "$j$",
     ylabel: str = "$i$",
     cbar_label: str = "$A_{ij}$",
+    add_colorbar: bool = True,
+    cbar_kwargs: Optional[dict] = None,
     imshow_kwargs: Optional[dict] = None,
 ):
     """Plot an adjacency matrix as a heatmap.
 
     - If ``ax`` is ``None``, creates a new figure and axes.
-    - The colorbar attaches to ``ax.figure``.
+    - The colorbar attaches to ``ax.figure`` unless ``add_colorbar=False``.
     - Accepts a GradNet-like object (callable with no args), a Torch tensor,
       or any array-like representing an adjacency.
     """
@@ -185,7 +187,10 @@ def plot_adjacency_heatmap(
         fig = ax.figure
 
     im = ax.imshow(data, **imshow_kwargs)
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    if add_colorbar:
+        cb_kwargs = {} if cbar_kwargs is None else dict(cbar_kwargs)
+        cb_kwargs.setdefault("label", cbar_label)
+        fig.colorbar(im, ax=ax, **cb_kwargs)
     ax.set(title=title, xlabel=xlabel, ylabel=ylabel)
     return im
 
@@ -198,10 +203,11 @@ def plot_graph(
     layout: str = "spring",
     node_size: float = 15.0,
     edgecolors: str = "black",
+    edge_width_scaling: float = 1.0,
     draw_kwargs: Optional[dict] = None,
     add_colorbar: bool = False,
     colorbar_label: str = None,
-):
+):  # TODO! layout="networkx" option is weird for positions
     """Draw the NetworkX representation of ``gn``.
 
     - If ``ax`` is ``None``, creates a new figure and axes.
@@ -225,6 +231,8 @@ def plot_graph(
 
     net = to_networkx(gn, pruning_threshold=pruning_threshold)
     edge_weights = list(nx.get_edge_attributes(net, "weight").values())
+    edge_weights = [w * edge_width_scaling for w in edge_weights]
+
     if not edge_weights:
         edge_weights = None
 

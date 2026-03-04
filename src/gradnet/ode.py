@@ -199,8 +199,6 @@ def integrate_ode(
     from torchdiffeq import odeint, odeint_adjoint, odeint_event
     ode_interface = odeint_adjoint if adjoint else odeint
     solver_options = {} if solver_options is None else solver_options
-    # Do not inject unsupported keys into options (e.g., dtype for RK4).
-    solver_options["dtype"] = gn.dtype  # inject dtype, it doesn't deduce this automatically from A
     base_kwargs = dict(rtol=rtol, atol=atol, method=method, options=solver_options)
 
     if adjoint:
@@ -220,32 +218,67 @@ def integrate_ode(
                 return event_fn(t, x, A, **f_kwargs)
 
             t0 = tt[0]
+            t1 = tt[-1]
+            decreasing = (t1 - t0) < 0
 
-            _ret = odeint_event(
-                vf, x0, t0,
-                event_fn=_efn,
-                odeint_interface=ode_interface,
-                **base_kwargs
-            )
+            # Some older torchdiffeq versions do not support an explicit `t1` for
+            # odeint_event, meaning integration can run indefinitely if the event
+            # never triggers. For that case, cap the event so it will always
+            # trigger at the end of the requested interval.
+            def _efn_capped(t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+                g = _efn(t, x)
+                t_cap = (t - t1) if decreasing else (t1 - t)
+                t_cap = t_cap.to(dtype=g.dtype, device=g.device)
+                return torch.minimum(g, t_cap)
+
+            try:
+                _ret = odeint_event(
+                    vf,
+                    x0,
+                    t0,
+                    t1=t1,
+                    event_fn=_efn,
+                    odeint_interface=ode_interface,
+                    **base_kwargs,
+                )
+            except TypeError:
+                # Older torchdiffeq versions may not accept `t1`.
+                _ret = odeint_event(
+                    vf,
+                    x0,
+                    t0,
+                    event_fn=_efn_capped,
+                    odeint_interface=ode_interface,
+                    **base_kwargs,
+                )
             # torchdiffeq versions differ: some return (t, x), others (t, x, index)
             if isinstance(_ret, (tuple, list)) and len(_ret) == 3:
                 t_event, x_event, _ = _ret
             else:
                 t_event, x_event = _ret  # type: ignore[misc]
 
+            # Ensure the stop time does not extend beyond the integration grid.
+            t_stop = torch.maximum(t_event, t1) if decreasing else torch.minimum(t_event, t1)
+            # Snap tiny endpoint roundoff to the exact requested endpoint.
+            if t_stop.is_floating_point():
+                eps = torch.finfo(t_stop.dtype).eps
+                scale = torch.maximum(torch.abs(t1), torch.ones_like(t1))
+                near_end = torch.abs(t_stop - t1) <= (128.0 * eps) * scale
+                t_stop = torch.where(near_end, t1, t_stop)
+
             # Build output grid up to the event, preserving time direction.
             # If times decrease (reverse-time), include points >= t_event and append t_event.
-            decreasing = (tt[-1] - tt[0]) < 0
             if decreasing:
-                mask = tt >= t_event
+                mask = tt >= t_stop
             else:
-                mask = tt <= t_event
+                mask = tt <= t_stop
             tt_partial = tt[mask]
-            if tt_partial.numel() == 0 or tt_partial[-1] != t_event:
-                tt_partial = torch.cat([tt_partial, t_event.unsqueeze(0)], dim=0)
+            if tt_partial.numel() == 0 or not torch.equal(tt_partial[-1], t_stop):
+                tt_partial = torch.cat([tt_partial, t_stop.unsqueeze(0)], dim=0)
 
             x_partial = ode_interface(vf, x0, tt_partial, **base_kwargs)
-            return tt_partial, x_partial, t_event, x_event
+            # Make sure returned (t_event, x_event) correspond to the capped output.
+            return tt_partial, x_partial, tt_partial[-1], x_partial[-1]
 
         # Standard solve
         y = ode_interface(vf, x0, tt, **base_kwargs)

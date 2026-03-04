@@ -3,9 +3,19 @@
 GradNet provides differentiable parameterizations of graph adjacency matrices with explicit budget and structure constraints. It pairs these parameterizations with ODE solvers and a lightweight PyTorch Lightning training loop so you can prototype network optimization problems quickly.
 
 <p align="center">
+  <img src="docs/source/_static/gradient_descent.png"
+       alt="Illustration of the gradient-based optimization pipeline for network structure."
+       width="650" />
+  <br />
+  <em>Illustration of the gradient-based optimization pipeline for network structure.</em>
+</p>
+
+<p align="center">
   <img src="docs/source/_static/rewiring_net.gif"
        alt="A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model."
        width="300" />
+  <br />
+  <em>A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.</em>
 </p>
 
 ## Highlights

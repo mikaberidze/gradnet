@@ -10,6 +10,13 @@ GradNet lets you parameterize and optimize weighted graphs with familiar
 PyTorch tooling so you can focus on your network science problem instead of
 hand-rolling differentiable adjacency updates.
 
+.. figure:: _static/gradient_descent.png
+   :alt: Illustration of the gradient-based optimization pipeline for network structure.
+   :align: center
+   :width: 650px
+
+   Illustration of the gradient-based optimization pipeline for network structure.
+
 .. figure:: _static/rewiring_net.gif
    :alt: A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.
    :align: center
