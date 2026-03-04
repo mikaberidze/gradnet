@@ -29,6 +29,8 @@ dependencies = [
   "torch>=2.0",
   "numpy>=1.21",
   "pytorch-lightning>=1.9,<3",
+  "tensorboard",
+  "matplotlib",
   "tqdm>=4.64",
   "torchdiffeq>=0.2.3",
 ]
