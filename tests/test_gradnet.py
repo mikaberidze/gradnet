@@ -417,6 +417,69 @@ def test_sparse_mask_defaults_use_sparse_adj0_and_implicit_unit_costs():
     assert torch.allclose(gn.param.cost_p_sum, torch.full_like(gn.param.cost_p_sum, 2.0))
 
 
+def test_sparse_mask_init_does_not_materialize_dense_default_mask(monkeypatch):
+    N = 8
+    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.long)
+    mask_val = torch.ones(mask_idx.shape[1], dtype=torch.float32)
+    mask_sp = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
+
+    orig_ones = torch.ones
+    orig_eye = torch.eye
+    orig_zeros = torch.zeros
+
+    def _shape_from_args(args, kwargs):
+        if args:
+            first = args[0]
+            if isinstance(first, (tuple, list, torch.Size)):
+                return tuple(first)
+            if len(args) >= 2 and all(isinstance(a, int) for a in args[:2]):
+                return (int(args[0]), int(args[1]))
+        size = kwargs.get("size")
+        if size is not None:
+            return tuple(size)
+        return None
+
+    def guarded_ones(*args, **kwargs):
+        shape = _shape_from_args(args, kwargs)
+        if shape == (N, N):
+            raise AssertionError("Dense NxN default mask allocation should not occur for sparse masks.")
+        return orig_ones(*args, **kwargs)
+
+    def guarded_eye(n, m=None, *args, **kwargs):
+        cols = n if m is None else m
+        if int(n) == N and int(cols) == N:
+            raise AssertionError("Dense NxN identity allocation should not occur for sparse masks.")
+        if m is None:
+            return orig_eye(n, *args, **kwargs)
+        return orig_eye(n, m, *args, **kwargs)
+
+    def guarded_zeros(*args, **kwargs):
+        shape = _shape_from_args(args, kwargs)
+        if shape == (N, N):
+            raise AssertionError("Dense NxN zero allocation should not occur for sparse masks.")
+        return orig_zeros(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "ones", guarded_ones)
+    monkeypatch.setattr(torch, "eye", guarded_eye)
+    monkeypatch.setattr(torch, "zeros", guarded_zeros)
+
+    gn = GradNet(
+        num_nodes=N,
+        budget=1.0,
+        mask=mask_sp,
+        adj0=None,
+        cost_matrix=None,
+        undirected=True,
+        rand_init_weights=False,
+        use_budget_up=True,
+        device="cpu",
+        dtype=torch.float32,
+    )
+
+    assert isinstance(gn.param, SparseParameterization)
+    assert gn.mask.layout == torch.sparse_coo
+
+
 def test_gradnet_export_and_from_config_roundtrip():
     mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
     adj0 = torch.tensor([[0.0, 0.5], [0.5, 0.0]])

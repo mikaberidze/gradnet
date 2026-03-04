@@ -628,9 +628,9 @@ class GradNet(nn.Module):
 
         N = self.num_nodes
 
-        # Default mask: all except diagonal
-        mask_default = torch.ones((N, N), device=dev, dtype=dt) - torch.eye(N, device=dev, dtype=dt)
-        mask_buf = _coerce(mask, lambda: mask_default)
+        # Default mask: all except diagonal (constructed lazily only when mask is omitted).
+        # This avoids materializing dense NxN tensors when a sparse mask is provided.
+        mask_buf = _coerce(mask, lambda: torch.ones((N, N), device=dev, dtype=dt))
         # Enforce zero diagonal on mask (dense or sparse)
         if isinstance(mask_buf, torch.Tensor) and mask_buf.layout != torch.strided:
             mbc = mask_buf.coalesce()
