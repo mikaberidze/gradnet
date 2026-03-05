@@ -13,6 +13,7 @@ This module provides:
 Docstrings mirror the style used in :mod:`gradnet.ode` and
 :mod:`gradnet.trainer` for high-quality Sphinx rendering.
 """
+
 from __future__ import annotations
 import torch
 import torch.nn as nn
@@ -32,14 +33,17 @@ def _suppress_torch_weights_warning():
         )
         yield
 
+
 # ----------------------------------------------------------------------------
 # Global Helper Functions (dtype/device-safe)
 # ----------------------------------------------------------------------------
-def normalize(matrix: torch.Tensor,
-              norm_val: float,
-              cost_aggr_norm: int = 1,
-              cost_matrix: Optional[torch.Tensor] = None,
-              strict: bool = True) -> torch.Tensor:
+def normalize(
+    matrix: torch.Tensor,
+    norm_val: float,
+    cost_aggr_norm: int = 1,
+    cost_matrix: Optional[torch.Tensor] = None,
+    strict: bool = True,
+) -> torch.Tensor:
     """Scale a matrix to satisfy a cost-weighted p-norm budget.
 
     Scales ``matrix`` so that ``|| cost_matrix * matrix ||_p == norm_val``
@@ -69,11 +73,15 @@ def normalize(matrix: torch.Tensor,
     p = cost_aggr_norm
 
     # If matrix is dense but cost_matrix is sparse, densify cost for elementwise ops
-    if hasattr(cost_matrix, "layout") and matrix.layout == torch.strided and cost_matrix.layout != torch.strided:
+    if (
+        hasattr(cost_matrix, "layout")
+        and matrix.layout == torch.strided
+        and cost_matrix.layout != torch.strided
+    ):
         cost_matrix = cost_matrix.to_dense()
 
     eps = matrix.new_tensor(1e-8)
-    s = (torch.abs(cost_matrix * matrix)**p).sum()**(1.0 / p)
+    s = (torch.abs(cost_matrix * matrix) ** p).sum() ** (1.0 / p)
 
     norm_val_t = matrix.new_tensor(norm_val)
     scale = norm_val_t / torch.clamp(s, min=eps)
@@ -84,7 +92,7 @@ def normalize(matrix: torch.Tensor,
     return matrix * scale
 
 
-def positivize(matrix: torch.Tensor, q: int=1, eps: float=1e-6) -> torch.Tensor:
+def positivize(matrix: torch.Tensor, q: int = 1, eps: float = 1e-6) -> torch.Tensor:
     """Map unconstrained entries to nonnegative values via squaring.
 
     Args:
@@ -93,7 +101,7 @@ def positivize(matrix: torch.Tensor, q: int=1, eps: float=1e-6) -> torch.Tensor:
     Returns:
       torch.Tensor: Elementwise square of ``matrix``.
     """
-    return (matrix**2+eps**q)**(1/q) - eps
+    return (matrix**2 + eps**q) ** (1 / q) - eps
 
 
 def symmetrize(matrix: torch.Tensor) -> torch.Tensor:
@@ -140,17 +148,20 @@ class DenseParameterization(nn.Module):
         ``a``. Cast to float and clamped to ``[0,1]``. Initial raw parameters are
         set to ``a * 1 + (1 - a) * U(0,1)``.
     """
-    def __init__(self,
-                 num_nodes: int,
-                 budget: float,
-                 mask: torch.Tensor,
-                 cost_matrix: torch.Tensor,
-                 *,
-                 delta_sign: str = "nonnegative",
-                 undirected: bool = True,
-                 use_budget_up: bool = False,
-                 cost_aggr_norm: int = 1,
-                 rand_init_weights: Union[bool, float] = True):
+
+    def __init__(
+        self,
+        num_nodes: int,
+        budget: float,
+        mask: torch.Tensor,
+        cost_matrix: torch.Tensor,
+        *,
+        delta_sign: str = "nonnegative",
+        undirected: bool = True,
+        use_budget_up: bool = False,
+        cost_aggr_norm: int = 1,
+        rand_init_weights: Union[bool, float] = True,
+    ):
         super().__init__()
 
         self.num_nodes = int(num_nodes)
@@ -158,7 +169,9 @@ class DenseParameterization(nn.Module):
         allowed_signs = {"free", "nonnegative", "nonpositive"}
         ds = str(delta_sign).lower()
         if ds not in allowed_signs:
-            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+            raise ValueError(
+                f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}"
+            )
         self.delta_sign = ds
         self.undirected = bool(undirected)
         self.use_budget_up = bool(use_budget_up)
@@ -193,7 +206,7 @@ class DenseParameterization(nn.Module):
         except Exception:
             a = 1.0 if bool(rand_init_weights) else 0.0
         a = max(0.0, min(1.0, a))
-        if use_budget_up: 
+        if use_budget_up:
             unif = torch.ones(shape, device=self.mask.device, dtype=self.mask.dtype)
         else:
             unif = torch.zeros(shape, device=self.mask.device, dtype=self.mask.dtype)
@@ -226,10 +239,12 @@ class DenseParameterization(nn.Module):
         return dof
 
     def extra_repr(self) -> str:
-        return (f"num_nodes={self.num_nodes}, budget={self.budget}, "
-                f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
-                f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
-                f"dtype={self.dtype}, device={self.device}")
+        return (
+            f"num_nodes={self.num_nodes}, budget={self.budget}, "
+            f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
+            f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
+            f"dtype={self.dtype}, device={self.device}"
+        )
 
     # --------- State management -------------------------------------------------
     @torch.no_grad()
@@ -243,10 +258,14 @@ class DenseParameterization(nn.Module):
         Raises:
           ValueError: If the provided tensor shape mismatches.
         """
-        delta_adj_raw_0 = torch.as_tensor(delta_adj_raw_0, device=self.device, dtype=self.dtype)
+        delta_adj_raw_0 = torch.as_tensor(
+            delta_adj_raw_0, device=self.device, dtype=self.dtype
+        )
         if delta_adj_raw_0.shape != self.delta_adj_raw.shape:
-            raise ValueError(f"Shape mismatch: got {tuple(delta_adj_raw_0.shape)}, "
-                             f"expected {tuple(self.delta_adj_raw.shape)}.")
+            raise ValueError(
+                f"Shape mismatch: got {tuple(delta_adj_raw_0.shape)}, "
+                f"expected {tuple(self.delta_adj_raw.shape)}."
+            )
         self.delta_adj_raw.copy_(delta_adj_raw_0)
         self.renorm_params()
 
@@ -304,12 +323,14 @@ class DenseParameterization(nn.Module):
             delta = -positivize(delta)
 
         delta = delta * self.mask
-        
-        delta = normalize(delta,
-                          self.budget,
-                          cost_aggr_norm=self.cost_aggr_norm,
-                          cost_matrix=self.cost_matrix,
-                          strict=self.use_budget_up)
+
+        delta = normalize(
+            delta,
+            self.budget,
+            cost_aggr_norm=self.cost_aggr_norm,
+            cost_matrix=self.cost_matrix,
+            strict=self.use_budget_up,
+        )
         return delta
 
 
@@ -320,6 +341,7 @@ class SparseParameterization(nn.Module):
     and constructs a sparse COO tensor for the ``delta`` matrix. In undirected
     mode, only ``(i < j)`` edges are parameterized and mirrored on output.
     """
+
     def __init__(
         self,
         *,
@@ -366,7 +388,9 @@ class SparseParameterization(nn.Module):
         allowed_signs = {"free", "nonnegative", "nonpositive"}
         ds = str(delta_sign).lower()
         if ds not in allowed_signs:
-            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+            raise ValueError(
+                f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}"
+            )
         self.delta_sign = ds
         self.undirected = bool(undirected)
         self.use_budget_up = bool(use_budget_up)
@@ -381,7 +405,7 @@ class SparseParameterization(nn.Module):
         except Exception:
             a = 1.0 if bool(rand_init_weights) else 0.0
         a = max(0.0, min(1.0, a))
-        if use_budget_up: 
+        if use_budget_up:
             unif = torch.ones((E,), device=device, dtype=dtype)
         else:
             unif = torch.zeros((E,), device=device, dtype=dtype)
@@ -404,10 +428,12 @@ class SparseParameterization(nn.Module):
 
     def extra_repr(self) -> str:
         E = int(self.edge_index.shape[1])
-        return (f"num_nodes={self.num_nodes}, edges={E}, budget={self.budget}, "
-                f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
-                f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
-                f"dtype={self.dtype}, device={self.device}")
+        return (
+            f"num_nodes={self.num_nodes}, edges={E}, budget={self.budget}, "
+            f"delta_sign={self.delta_sign!r}, undirected={self.undirected}, "
+            f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
+            f"dtype={self.dtype}, device={self.device}"
+        )
 
     @torch.no_grad()
     def set_initial_state(self, delta_adj_raw_0: torch.Tensor):
@@ -419,9 +445,13 @@ class SparseParameterization(nn.Module):
         Raises:
           ValueError: If shape mismatches the internal parameter.
         """
-        delta_adj_raw_0 = torch.as_tensor(delta_adj_raw_0, device=self.device, dtype=self.dtype)
+        delta_adj_raw_0 = torch.as_tensor(
+            delta_adj_raw_0, device=self.device, dtype=self.dtype
+        )
         if delta_adj_raw_0.shape != self.delta_adj_raw.shape:
-            raise ValueError(f"Shape mismatch: got {tuple(delta_adj_raw_0.shape)}, expected {tuple(self.delta_adj_raw.shape)}.")
+            raise ValueError(
+                f"Shape mismatch: got {tuple(delta_adj_raw_0.shape)}, expected {tuple(self.delta_adj_raw.shape)}."
+            )
         self.delta_adj_raw.copy_(delta_adj_raw_0)
         self.renorm_params()
 
@@ -489,9 +519,21 @@ class SparseParameterization(nn.Module):
             ii = torch.cat([i, j], dim=0)
             jj = torch.cat([j, i], dim=0)
             vv = torch.cat([vals, vals], dim=0)
-            return torch.sparse_coo_tensor(torch.stack([ii, jj], dim=0), vv, (self.num_nodes, self.num_nodes), device=self.device, dtype=self.dtype).coalesce()
+            return torch.sparse_coo_tensor(
+                torch.stack([ii, jj], dim=0),
+                vv,
+                (self.num_nodes, self.num_nodes),
+                device=self.device,
+                dtype=self.dtype,
+            ).coalesce()
         else:
-            return torch.sparse_coo_tensor(self.edge_index, vals, (self.num_nodes, self.num_nodes), device=self.device, dtype=self.dtype).coalesce()
+            return torch.sparse_coo_tensor(
+                self.edge_index,
+                vals,
+                (self.num_nodes, self.num_nodes),
+                device=self.device,
+                dtype=self.dtype,
+            ).coalesce()
 
 
 # ----------------------------------------------------------------------------
@@ -504,6 +546,7 @@ class GradNet(nn.Module):
     and delegates the trainable parameters to either a dense or sparse
     parameterization depending on mask layout.
     """
+
     @staticmethod
     def _is_sparse_tensor(x: object) -> bool:
         """Return ``True`` when ``x`` is a non-strided PyTorch tensor."""
@@ -519,23 +562,27 @@ class GradNet(nn.Module):
         """Create a coalesced sparse COO all-zero matrix."""
         idx = torch.empty((2, 0), dtype=torch.long, device=device)
         vals = torch.empty((0,), dtype=dtype, device=device)
-        return torch.sparse_coo_tensor(idx, vals, shape, device=device, dtype=dtype).coalesce()
+        return torch.sparse_coo_tensor(
+            idx, vals, shape, device=device, dtype=dtype
+        ).coalesce()
 
-    def __init__(self,
-                 num_nodes: int,
-                 budget: float,
-                 mask = None,
-                 adj0 = None,
-                 delta_sign: str = "nonnegative",
-                 final_sign: str = "free",
-                 undirected: bool = True,
-                 rand_init_weights: Union[bool, float] = True,
-                 use_budget_up: bool = True,
-                 cost_matrix = None,
-                 cost_aggr_norm: int = 1,
-                 *,
-                 device: Optional[str] = None,
-                 dtype: Optional[str] = None):
+    def __init__(
+        self,
+        num_nodes: int,
+        budget: float,
+        mask=None,
+        adj0=None,
+        delta_sign: str = "nonnegative",
+        final_sign: str = "free",
+        undirected: bool = True,
+        rand_init_weights: Union[bool, float] = True,
+        use_budget_up: bool = True,
+        cost_matrix=None,
+        cost_aggr_norm: int = 1,
+        *,
+        device: Optional[str] = None,
+        dtype: Optional[str] = None,
+    ):
         """Construct a GradNet instance.
 
         Args:
@@ -576,12 +623,20 @@ class GradNet(nn.Module):
         # ---- Standard device/dtype negotiation --------------------------------
         # 1) If any input tensor is provided, use its device/dtype as defaults.
         # 2) Otherwise, fall back to explicit kwargs, else CPU + torch.get_default_dtype().
-        infer_from = next((t for t in (adj0, mask, cost_matrix) if isinstance(t, torch.Tensor)), None)
-        dev = torch.device(device) if device is not None else (
-            infer_from.device if infer_from is not None else torch.device("cpu")
+        infer_from = next(
+            (t for t in (adj0, mask, cost_matrix) if isinstance(t, torch.Tensor)), None
+        )
+        dev = (
+            torch.device(device)
+            if device is not None
+            else (infer_from.device if infer_from is not None else torch.device("cpu"))
         )
         if dtype is None:
-            dt = infer_from.dtype if infer_from is not None else torch.get_default_dtype()
+            dt = (
+                infer_from.dtype
+                if infer_from is not None
+                else torch.get_default_dtype()
+            )
         else:
             if isinstance(dtype, torch.dtype):
                 dt = dtype
@@ -601,9 +656,13 @@ class GradNet(nn.Module):
         ds = str(delta_sign).lower()
         fs = str(final_sign).lower()
         if ds not in allowed_signs:
-            raise ValueError(f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}")
+            raise ValueError(
+                f"delta_sign must be one of {sorted(allowed_signs)}; got {delta_sign!r}"
+            )
         if fs not in allowed_signs:
-            raise ValueError(f"final_sign must be one of {sorted(allowed_signs)}; got {final_sign!r}")
+            raise ValueError(
+                f"final_sign must be one of {sorted(allowed_signs)}; got {final_sign!r}"
+            )
         self.delta_sign = ds
         self.final_sign = fs
         self.undirected = bool(undirected)
@@ -613,7 +672,7 @@ class GradNet(nn.Module):
         # ---- Helpers -----------------------------------------------------------
         def _coerce(x, make_fallback):
             """
-            Convert x to a detached tensor on (device,dtype). 
+            Convert x to a detached tensor on (device,dtype).
             If None, create via fallback_fn().
             """
             if x is None:
@@ -655,7 +714,9 @@ class GradNet(nn.Module):
             # Sparse backend can keep unit costs implicit via _prepare_edge_list(..., cost_matrix=None).
             cost_buf = None
         else:
-            cost_buf = _coerce(cost_matrix, lambda: torch.ones((N, N), device=dev, dtype=dt))
+            cost_buf = _coerce(
+                cost_matrix, lambda: torch.ones((N, N), device=dev, dtype=dt)
+            )
         self.register_buffer("cost_matrix", cost_buf)
 
         # Default adj0: zeros (layout follows backend choice)
@@ -691,7 +752,10 @@ class GradNet(nn.Module):
             )
         else:
             # Ensure dense cost for elementwise ops
-            if isinstance(self.cost_matrix, torch.Tensor) and self.cost_matrix.layout != torch.strided:
+            if (
+                isinstance(self.cost_matrix, torch.Tensor)
+                and self.cost_matrix.layout != torch.strided
+            ):
                 self.cost_matrix = self.cost_matrix.to_dense()
             self.param = DenseParameterization(
                 num_nodes=N,
@@ -716,14 +780,17 @@ class GradNet(nn.Module):
         return self.param.dtype
 
     def extra_repr(self) -> str:
-        return (f"num_nodes={self.num_nodes}, budget={self.budget}, "
-                f"delta_sign={self.delta_sign!r}, final_sign={self.final_sign!r}, undirected={self.undirected}, "
-                f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
-                f"dtype={self.dtype}, device={self.device}")
+        return (
+            f"num_nodes={self.num_nodes}, budget={self.budget}, "
+            f"delta_sign={self.delta_sign!r}, final_sign={self.final_sign!r}, undirected={self.undirected}, "
+            f"use_budget_up={self.use_budget_up}, p={self.cost_aggr_norm}, "
+            f"dtype={self.dtype}, device={self.device}"
+        )
 
     # --------- Minimal serialization helpers ----------------------------------
     def export_config(self) -> dict:
         """Return a CPU-side configuration snapshot for later reconstruction."""
+
         def _clone_cpu(x):
             if isinstance(x, torch.Tensor):
                 return x.detach().clone().cpu()
@@ -845,7 +912,9 @@ class GradNet(nn.Module):
             ckpt = torch.load(checkpoint_path, map_location=map_location)
         config = ckpt.get("hyper_parameters", {}).get("gradnet_config")
         if config is None:
-            raise ValueError("Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning.")
+            raise ValueError(
+                "Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning."
+            )
 
         model = cls.from_config(config)
 
@@ -895,7 +964,10 @@ class GradNet(nn.Module):
         keep = ii != jj
         dropped = int((~keep).sum().item())
         if dropped > 0:
-            warnings.warn(f"Mask has {dropped} diagonal entries; they will be ignored (set to 0).", RuntimeWarning)
+            warnings.warn(
+                f"Mask has {dropped} diagonal entries; they will be ignored (set to 0).",
+                RuntimeWarning,
+            )
         ii = ii[keep]
         jj = jj[keep]
 
@@ -918,7 +990,9 @@ class GradNet(nn.Module):
 
         # Handle cost matrix
         if cost_matrix is None:
-            cost_p_sum = torch.full((E,), 2.0 if undirected else 1.0, device=device, dtype=dtype)
+            cost_p_sum = torch.full(
+                (E,), 2.0 if undirected else 1.0, device=device, dtype=dtype
+            )
             return edge_index.to(device=device), cost_p_sum
 
         # Warn on asymmetry in undirected mode
@@ -928,14 +1002,20 @@ class GradNet(nn.Module):
                 if cm.shape != (N, N):
                     raise ValueError("cost_matrix shape mismatch")
                 if not torch.allclose(cm, cm.transpose(-1, -2)):
-                    warnings.warn("Undirected requested but cost_matrix is not symmetric.", RuntimeWarning)
+                    warnings.warn(
+                        "Undirected requested but cost_matrix is not symmetric.",
+                        RuntimeWarning,
+                    )
             else:
                 cm = cost_matrix.coalesce()
                 ri, rj = edge_index
                 c_ij = _gather_sparse_values(cm, ri, rj, default=0.0)
                 c_ji = _gather_sparse_values(cm, rj, ri, default=0.0)
                 if torch.any(c_ij != c_ji):
-                    warnings.warn("Undirected requested but cost_matrix has asymmetric values on masked edges.", RuntimeWarning)
+                    warnings.warn(
+                        "Undirected requested but cost_matrix has asymmetric values on masked edges.",
+                        RuntimeWarning,
+                    )
 
         # Build cost_p_sum and warn on missing costs
         if cost_matrix.layout == torch.strided:
@@ -950,23 +1030,28 @@ class GradNet(nn.Module):
             cm = cost_matrix.coalesce()
             ri, rj = edge_index
             c_ij = torch.abs(_gather_sparse_values(cm, ri, rj, default=0.0)) ** p
-            missing_ij = (c_ij == 0)
+            missing_ij = c_ij == 0
             if undirected:
                 c_ji = torch.abs(_gather_sparse_values(cm, rj, ri, default=0.0)) ** p
-                missing_ji = (c_ji == 0)
-                missing = (missing_ij | missing_ji)
+                missing_ji = c_ji == 0
+                missing = missing_ij | missing_ji
                 cost_p_sum = (c_ij + c_ji).to(dtype=dtype, device=device)
             else:
                 missing = missing_ij
                 cost_p_sum = c_ij.to(dtype=dtype, device=device)
             miss_count = int(missing.sum().item())
             if miss_count > 0:
-                warnings.warn(f"Cost matrix missing {miss_count} entries for masked edges; assuming 0 cost.", RuntimeWarning)
+                warnings.warn(
+                    f"Cost matrix missing {miss_count} entries for masked edges; assuming 0 cost.",
+                    RuntimeWarning,
+                )
 
         return edge_index.to(device=device), cost_p_sum
 
 
-def _gather_sparse_values(cm: torch.Tensor, ri: torch.Tensor, rj: torch.Tensor, default: float = 0.0) -> torch.Tensor:
+def _gather_sparse_values(
+    cm: torch.Tensor, ri: torch.Tensor, rj: torch.Tensor, default: float = 0.0
+) -> torch.Tensor:
     """Gather values from a coalesced COO sparse matrix at (ri, rj) pairs.
 
     Missing entries are filled with ``default``. Accepts a dense matrix as a
@@ -994,8 +1079,14 @@ def _gather_sparse_values(cm: torch.Tensor, ri: torch.Tensor, rj: torch.Tensor, 
     svals = vals[order]
     pos = torch.searchsorted(sk, qkeys)
     pos = torch.clamp(pos, max=max(0, sk.numel() - 1))
-    match = (sk[pos] == qkeys) if sk.numel() > 0 else torch.zeros_like(qkeys, dtype=torch.bool)
-    out = torch.full(qkeys.shape, fill_value=float(default), device=vals.device, dtype=vals.dtype)
+    match = (
+        (sk[pos] == qkeys)
+        if sk.numel() > 0
+        else torch.zeros_like(qkeys, dtype=torch.bool)
+    )
+    out = torch.full(
+        qkeys.shape, fill_value=float(default), device=vals.device, dtype=vals.dtype
+    )
     if sk.numel() > 0:
         out[match] = svals[pos[match]]
     return out
