@@ -65,6 +65,7 @@ docs/build/jupyter_execute/
 *.sublime-workspace
 *.sublime-project
 CLAUDE.md
+RELEASING.md
 
 # Misc
 *.swp
