@@ -16,7 +16,7 @@ routing, at scales exceeding 10⁶ nodes.
    :align: center
    :width: 650px
 
-   Illustration of the gradient-based optimization pipeline for network structure.
+   Illustration of the gradient-based optimization pipeline for network structures.
 
 .. figure:: _static/rewiring_net.gif
    :alt: A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.
