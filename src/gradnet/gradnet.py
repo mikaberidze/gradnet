@@ -447,7 +447,7 @@ class GradNet(nn.Module):
         """Load a ``GradNet`` from a PyTorch Lightning checkpoint. Checkpoints are stored by fit."""
         with _suppress_torch_weights_warning():
             ckpt = torch.load(checkpoint_path, map_location=map_location)
-        config = ckpt.get("hyper_parameters", {}).get("gradnet_config")
+        config = ckpt.get("gradnet_config")
         if config is None:
             raise ValueError(
                 "Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning."

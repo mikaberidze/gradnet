@@ -747,7 +747,7 @@ def test_gradnet_from_checkpoint_roundtrip(tmp_path):
     ckpt_dir = tmp_path / "ckpt"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    trainer, best_ckpt = fit(
+    _, best_ckpt = fit(
         gn=gn,
         loss_fn=loss_fn,
         num_updates=2,
@@ -768,7 +768,8 @@ def test_gradnet_from_checkpoint_roundtrip(tmp_path):
     for key, value in orig_state.items():
         assert torch.allclose(reloaded.state_dict()[key], value)
 
-    config = trainer.lightning_module.hparams.get("gradnet_config")
+    ckpt_payload = torch.load(best_ckpt, map_location="cpu")
+    config = ckpt_payload.get("gradnet_config")
     assert config is not None
     assert config["num_nodes"] == gn.num_nodes
     assert torch.allclose(config["mask"], gn.mask.cpu())

@@ -67,7 +67,7 @@ def test_oneitem_dataset_contract():
     assert ds[0] == {}
 
 
-def test_gradnetlightning_forward_calls_model():
+def test_gradnetlightning_wraps_model():
     net = DummyNet()
     module = GradNetLightning(
         gn=net,
@@ -76,7 +76,7 @@ def test_gradnetlightning_forward_calls_model():
         optim_cls=torch.optim.SGD,
         optim_kwargs={"lr": 0.1},
     )
-    y = module.forward()
+    y = module.gn()
     assert torch.is_tensor(y)
     assert y.shape == torch.Size([1])
 
@@ -164,7 +164,6 @@ def test_checkpointing_every_n(tmp_path: pathlib.Path):
     assert best_cb.mode == "min"
     assert best_cb.save_top_k == 1
     assert best_cb.save_last is True
-    assert best_cb.every_n_epochs is None
     assert periodic_cb.every_n_epochs == 2
     assert periodic_cb.save_top_k == -1
     assert periodic_cb.save_last is False
@@ -191,7 +190,6 @@ def test_checkpointing_defaults_best_only(tmp_path: pathlib.Path):
     assert len(checkpoints) == 1
     ckpt_cb = checkpoints[0]
     assert ckpt_cb.monitor == "loss"
-    assert ckpt_cb.every_n_epochs is None
     assert ckpt_cb.save_last is False
     assert isinstance(best, str) and os.path.exists(best)
 

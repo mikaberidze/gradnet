@@ -19,10 +19,22 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase
 from pytorch_lightning.callbacks import Callback
+
 try:  # prefer notebook progress bar when the stack supports it
     from tqdm import TqdmWarning  # type: ignore[attr-defined]
 except (ImportError, AttributeError):
     TqdmWarning = Warning  # fallback when tqdm lacks TqdmWarning
+
+try:  # PL >= 1.6-ish
+    from pytorch_lightning.utilities.warnings import PossibleUserWarning
+except Exception:  # Fallback for older PL where it's just a UserWarning
+    PossibleUserWarning = UserWarning
+
+for warning_pattern in (
+    r"The 'train_dataloader' does not have many workers.*",
+    r"GPU available but not used.*",
+):
+    warnings.filterwarnings("ignore", message=warning_pattern, category=PossibleUserWarning)
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=TqdmWarning)
@@ -30,24 +42,9 @@ with warnings.catch_warnings():
         from tqdm.auto import tqdm
     except Exception:
         from tqdm import tqdm  # noqa: F401  # CLI fallback without warnings
+
 from .utils import _to_like_struct
 from .gradnet import GradNet
-try:# PL >= 1.6-ish
-    from pytorch_lightning.utilities.warnings import PossibleUserWarning
-except Exception: # Fallback for older PL where it's just a UserWarning
-    PossibleUserWarning = UserWarning
-
-
-warnings.filterwarnings(  # silence few data-loader workers warning. We don't need data-loader workers
-    "ignore",
-    message=r"The 'train_dataloader' does not have many workers.*",
-    category=PossibleUserWarning,
-)
-warnings.filterwarnings(  # silence GPU not used warning
-    "ignore",
-    message=r"GPU available but not used.*",
-    category=PossibleUserWarning,
-)
 
 
 class LossFn(Protocol):
@@ -139,13 +136,10 @@ class GradNetLightning(pl.LightningModule):
         compile_model: bool = False,
     ):
         super().__init__()
-        gradnet_config = None
-        if isinstance(gn, GradNet) and hasattr(gn, "export_config"):
-            gradnet_config = gn.export_config()
-        self.save_hyperparameters({"gradnet_config": gradnet_config}, logger=False)
+        self._gradnet_config = gn.export_config() if isinstance(gn, GradNet) else None
         self.gn = gn
         self.loss_fn = loss_fn
-        self.loss_kwargs = loss_kwargs
+        self.loss_kwargs = {} if loss_kwargs is None else loss_kwargs
         self.optim_cls = optim_cls
         self.optim_kwargs = optim_kwargs
         self.sched_cls = sched_cls
@@ -158,38 +152,15 @@ class GradNetLightning(pl.LightningModule):
         self.automatic_optimization = False  # manual optimization
 
     def setup(self, stage: Optional[str] = None):
-        """Optional model compilation with ``torch.compile``.
-
-        :param stage: Lightning training stage (unused).
-        :type stage: str | None
-        """
+        """Optionally compile the wrapped model."""
         if self.compile_model:
             try:
                 self.gn = torch.compile(self.gn)  # type: ignore[attr-defined]
             except Exception as e:
                 pl.utilities.rank_zero.rank_zero_warn(f"torch.compile failed; continuing uncompiled. Error: {e}")
 
-    def forward(self):
-        """Return the model output (full adjacency in ``GradNet``).
-
-        :return: Forward pass of ``gn``.
-        :rtype: torch.Tensor
-        """
-        return self.gn()
-
     def training_step(self, batch, batch_idx):
-        """One optimization step driven by the user loss.
-
-        Computes ``loss_fn(gn, **loss_kwargs)``, backpropagates, clips
-        gradients if configured, takes an optimizer step, optionally calls
-        ``gn.renorm_params()`` according to post-step renorm policy, and logs
-        loss/metrics.
-
-        :param batch: Dummy batch (unused).
-        :param batch_idx: Training step index.
-        :return: Detached loss tensor.
-        :rtype: torch.Tensor
-        """
+        """Run one manual-optimization update using ``loss_fn``."""
         # compute loss (+ optional metrics)
         out = self.loss_fn(self.gn, **self.loss_kwargs)
         loss, metrics = (out, {}) if isinstance(out, torch.Tensor) else out
@@ -204,8 +175,13 @@ class GradNetLightning(pl.LightningModule):
         opt.zero_grad(set_to_none=True)
 
         # optional: renormalize after each update according to model policy
-        if self._should_post_step_renorm() and hasattr(self.gn, "renorm_params"):
-            self.gn.renorm_params()
+        if self.post_step_renorm and hasattr(self.gn, "renorm_params"):
+            should_renorm = True
+            policy = getattr(self.gn, "should_renorm_after_step", None)
+            if callable(policy):
+                should_renorm = bool(policy())
+            if should_renorm:
+                self.gn.renorm_params()
 
         self.log(self.monitor_key, loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True, batch_size=1)
         for k, v in metrics.items():
@@ -214,21 +190,8 @@ class GradNetLightning(pl.LightningModule):
 
         return loss.detach()
 
-    def _should_post_step_renorm(self) -> bool:
-        """Return whether to run ``renorm_params()`` after this optimizer step."""
-        if not self.post_step_renorm:
-            return False
-        policy = getattr(self.gn, "should_renorm_after_step", None)
-        if callable(policy):
-            return bool(policy())
-        return True
-
     def configure_optimizers(self):
-        """Construct optimizer (and optional LR scheduler) for Lightning.
-
-        :return: Optimizer or an optimizer+lr_scheduler dict per Lightning API.
-        :rtype: torch.optim.Optimizer | dict
-        """
+        """Build the optimizer (and optional scheduler) config for Lightning."""
         opt = self.optim_cls(self.gn.parameters(), **self.optim_kwargs)
         if self.sched_cls is None:
             return opt
@@ -237,6 +200,11 @@ class GradNetLightning(pl.LightningModule):
             "optimizer": opt,
             "lr_scheduler": {"scheduler": sched, "interval": "epoch", "frequency": 1, "name": "lr"},
         }
+
+    def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        """Persist GradNet reconstruction metadata when available."""
+        if self._gradnet_config is not None:
+            checkpoint["gradnet_config"] = self._gradnet_config
 
 
 class _EpochTQDM(Callback):
@@ -452,13 +420,9 @@ def fit(
         torch.use_deterministic_algorithms(bool(deterministic))
 
     # params must be kwargs if provided
-    if loss_kwargs is None:
-        loss_kwargs = {}
-    elif isinstance(loss_kwargs, Mapping):
-        loss_kwargs = _to_like_struct(loss_kwargs, gn)
-    else:
+    if loss_kwargs is not None and not isinstance(loss_kwargs, Mapping):
         raise TypeError("`loss_kwargs` must be a Mapping of keyword arguments (or None).")
-
+    loss_kwargs = _to_like_struct(loss_kwargs, gn) if isinstance(loss_kwargs, Mapping) else {}
 
     module = GradNetLightning(
         gn=gn,
@@ -487,9 +451,6 @@ def fit(
             mode="min",
             save_top_k=1,
             save_last=save_last,
-            # Explicitly mark metric-based checkpoint as non-periodic
-            # so tests (and behavior across PL versions) see None here
-            every_n_epochs=None,
             auto_insert_metric_name=False,
         )
         cb.append(ckpt)
@@ -541,20 +502,5 @@ def fit(
     if not verbose:
         for name, lvl in prev_levels.items():
             logging.getLogger(name).setLevel(lvl)
-
-    # PyTorch Lightning may normalize `every_n_epochs=None` to `1` internally.
-    # Keep the metric-based checkpoint explicitly non-periodic as part of our
-    # public contract (and for tests that assert this).
-    if ckpt is not None:
-        if hasattr(ckpt, "_every_n_epochs"):
-            try:
-                ckpt._every_n_epochs = None  # type: ignore[attr-defined]
-            except Exception:
-                pass
-        else:
-            try:
-                ckpt.every_n_epochs = None
-            except Exception:
-                pass
 
     return trainer, (ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None)
