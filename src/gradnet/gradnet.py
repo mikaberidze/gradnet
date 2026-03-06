@@ -595,7 +595,7 @@ class DenseParameterization(nn.Module):
     Maintains a dense, trainable ``delta_adj_raw`` and projects it to a
     constrained perturbation ``delta`` through the following pipeline::
 
-        raw -> (symmetrize?) -> mask -> (square?) -> normalize (when budget is set)
+        raw -> (symmetrize?) -> (square?) -> mask -> normalize (when budget is set)
 
     Args:
       num_nodes (int): Number of nodes (matrix dimension).

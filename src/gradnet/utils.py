@@ -285,7 +285,7 @@ def load_scalars(log_dir: Union[str, Path]):
     filled with ``nan``.
 
     Usage:
-        >>> steps, series = load_scalar_series('lightning_logs/gradnet')
+        >>> steps, series = load_scalars('lightning_logs/gradnet')
         >>> loss = series['loss']
 
     :param log_dir: Path to a logger directory or its parent.
@@ -589,7 +589,7 @@ def positions_to_distance_matrix(positions: torch.Tensor, norm: float = 2.0):
 def regularization_loss(del_adj: torch.Tensor) -> torch.Tensor:
     """
     Regularization loss for sparsifying the delta adjacency.
-    Computes sum(sigmoid(abs(del_adj))).
+    Computes sum(log(abs(del_adj) + 1)) / N, where N is the last dimension size.
     """
     # f = lambda x: torch.sigmoid(x)
     f = lambda x: torch.log(x + 1)

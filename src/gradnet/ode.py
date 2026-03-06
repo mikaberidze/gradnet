@@ -107,8 +107,8 @@ def integrate_ode(
     Returns:
       tuple: ``(tt_out, x_out)`` where ``x_out`` has shape ``(len(tt_out), *x0.shape)``.
         If an event is used, ``(tt_out, x_out, t_event, x_event)`` ``tt_out`` and ``x_out`` are
-        truncated at the detected event time. ``t_event`` and ``x_event`` are differentiable time
-        time and state at the event.
+        truncated at the detected event time. ``t_event`` and ``x_event`` are the differentiable
+        event time and state.
 
     Raises:
       TypeError: If ``f_kwargs`` is not a mapping (and not ``None``).
@@ -133,7 +133,7 @@ def integrate_ode(
         def event(t, x, A):
             return x[0]  # stop when it crosses 0
 
-        tt_partial, x_partial = integrate_ode(
+        tt_partial, x_partial, t_event, x_event = integrate_ode(
             A, vf, x0, tt, event_fn=event
         )
 

@@ -97,9 +97,9 @@ class GradNetLightning(pl.LightningModule):
         ``loss_fn(gn, **loss_kwargs)``. Must return either a scalar loss tensor or
         a ``(loss, metrics_dict)`` tuple.
     loss_kwargs : Mapping[str, Any] | None, optional
-        Extra keyword arguments forwarded to ``loss_fn`` and converted via
-        :func:`gradnet.utils._to_like_struct` so tensors follow ``gn``'s device
-        and dtype.
+        Extra keyword arguments forwarded to ``loss_fn``. When passed through
+        :func:`fit`, tensors and arrays are coerced to ``gn``'s device/dtype
+        via :func:`gradnet.utils._to_like_struct` before being stored here.
     optim_cls : type[torch.optim.Optimizer]
         Optimiser class instantiated over ``gn.parameters()``.
     optim_kwargs : dict, optional
