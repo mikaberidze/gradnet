@@ -41,6 +41,17 @@ class DummyNet(nn.Module):
         self.renorm_calls += 1
 
 
+class DummyNetWithPolicy(DummyNet):
+    """DummyNet variant exposing renorm policy hook."""
+
+    def __init__(self, should_renorm: bool):
+        super().__init__()
+        self._should_renorm = bool(should_renorm)
+
+    def should_renorm_after_step(self):
+        return self._should_renorm
+
+
 def simple_loss(model: nn.Module, scale: float = 1.0):
     # scalar differentiable loss using the model output
     out = model()
@@ -337,6 +348,41 @@ def test_no_renorm_when_disabled():
         accelerator="cpu",
     )
     assert net.renorm_calls == 0
+
+
+def test_no_renorm_when_model_policy_disables():
+    net = DummyNetWithPolicy(should_renorm=False)
+    fit(
+        gn=net,
+        loss_fn=simple_loss,
+        loss_kwargs={"scale": 1.0},
+        num_updates=2,
+        optim_cls=torch.optim.SGD,
+        optim_kwargs={"lr": 0.05},
+        post_step_renorm=True,
+        enable_checkpointing=False,
+        logger=False,
+        accelerator="cpu",
+    )
+    assert net.renorm_calls == 0
+
+
+def test_renorm_runs_when_model_policy_enables():
+    net = DummyNetWithPolicy(should_renorm=True)
+    num_updates = 2
+    fit(
+        gn=net,
+        loss_fn=simple_loss,
+        loss_kwargs={"scale": 1.0},
+        num_updates=num_updates,
+        optim_cls=torch.optim.SGD,
+        optim_kwargs={"lr": 0.05},
+        post_step_renorm=True,
+        enable_checkpointing=False,
+        logger=False,
+        accelerator="cpu",
+    )
+    assert net.renorm_calls == num_updates
 
 
 def test_precision_string_runs_cpu():

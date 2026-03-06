@@ -9,13 +9,13 @@ torch = pytest.importorskip("torch")
 
 # Ensure `src/` is on sys.path for local imports when using a src layout
 THIS_DIR = os.path.dirname(__file__)
-SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir, 'src'))
+SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir, "src"))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from gradnet.gradnet import (
     normalize,
-    positivize,
+    square,
     symmetrize,
     DenseParameterization,
     SparseParameterization,
@@ -35,18 +35,18 @@ def _p_cost_norm(x, cost, p: int):
 def test_helpers_normalize_and_transforms():
     A = torch.tensor([[1.0, -2.0], [3.0, -4.0]])
     C = torch.ones_like(A)
-    out = normalize(A, norm_val=10.0, cost_aggr_norm=2, cost_matrix=C, strict=True)
+    out = normalize(A, norm_val=10.0, cost_aggr_norm=2, cost_matrix=C, scale_up=True)
     s = _p_cost_norm(out, C, 2)
     assert torch.allclose(s, torch.tensor(10.0), atol=1e-6)
 
-    # strict=False should not upscale
+    # scale_up=False should not upscale
     B = torch.tensor([[0.1, 0.0], [0.0, 0.0]])
-    out2 = normalize(B, norm_val=10.0, cost_aggr_norm=1, cost_matrix=C, strict=False)
+    out2 = normalize(B, norm_val=10.0, cost_aggr_norm=1, cost_matrix=C, scale_up=False)
     assert torch.allclose(out2, B)  # unchanged because upscaling is disabled
 
     # transforms
     X = torch.tensor([[0.0, 2.0], [-3.0, 0.0]])
-    assert torch.equal(positivize(X), X ** 2)
+    assert torch.equal(square(X), X**2)
     S = symmetrize(torch.tensor([[0.0, 1.0], [2.0, 0.0]]))
     assert torch.allclose(S, torch.tensor([[0.0, 1.5], [1.5, 0.0]]))
 
@@ -63,8 +63,8 @@ def test_denseparam_forward_pipeline_budget_and_mask():
         mask=mask,
         cost_matrix=cost,
         delta_sign="nonnegative",
-        undirected=True,
-        use_budget_up=True,
+        directed=False,
+        strict_budget=True,
         cost_aggr_norm=1,
         rand_init_weights=False,
     )
@@ -92,8 +92,8 @@ def test_denseparam_no_upscale_when_disabled():
         mask=mask,
         cost_matrix=cost,
         delta_sign="free",
-        undirected=False,
-        use_budget_up=False,  # do not upscale
+        directed=True,
+        strict_budget=False,  # do not upscale
         cost_aggr_norm=2,
         rand_init_weights=False,
     )
@@ -102,9 +102,32 @@ def test_denseparam_no_upscale_when_disabled():
     raw[0, 1] = 0.01
     dp.set_initial_state(raw)
     delta = dp()
-    # since strict=False, result should not be further upscaled by normalize;
+    # since scale_up=False, result should not be further upscaled by normalize;
     # it should match the masked raw after internal renormalization
-    expected = (dp.delta_adj_raw.detach() * mask)
+    expected = dp.delta_adj_raw.detach() * mask
+    assert torch.allclose(delta.detach(), expected)
+
+
+def test_denseparam_budget_none_skips_normalization():
+    N = 3
+    mask = torch.ones((N, N)) - torch.eye(N)
+    cost = torch.ones((N, N))
+    dp = DenseParameterization(
+        num_nodes=N,
+        budget=None,
+        mask=mask,
+        cost_matrix=cost,
+        delta_sign="free",
+        directed=True,
+        strict_budget=True,
+        cost_aggr_norm=2,
+        rand_init_weights=False,
+    )
+    raw = torch.zeros((N, N))
+    raw[0, 1] = 0.01
+    dp.set_initial_state(raw)
+    delta = dp()
+    expected = dp.delta_adj_raw.detach() * mask
     assert torch.allclose(delta.detach(), expected)
 
 
@@ -120,8 +143,8 @@ def test_sparseparam_budget_and_mirroring():
         edge_index=edge_index,
         cost_p_sum=cost_p_sum,
         delta_sign="nonnegative",
-        undirected=True,
-        use_budget_up=True,
+        directed=False,
+        strict_budget=True,
         cost_aggr_norm=1,
         rand_init_weights=False,
         dtype=torch.float32,
@@ -150,6 +173,35 @@ def test_sparseparam_budget_and_mirroring():
     )
 
 
+def test_sparseparam_budget_none_skips_normalization():
+    N = 3
+    edge_index = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
+    E = edge_index.shape[1]
+    cost_p_sum = torch.ones((E,)) * 2.0
+    sp = SparseParameterization(
+        num_nodes=N,
+        budget=None,
+        edge_index=edge_index,
+        cost_p_sum=cost_p_sum,
+        delta_sign="free",
+        directed=False,
+        strict_budget=True,
+        cost_aggr_norm=1,
+        rand_init_weights=False,
+        dtype=torch.float32,
+        device=torch.device("cpu"),
+    )
+    sp.set_initial_state(torch.ones((E,)))
+    delta_sp = sp().coalesce()
+    ii, jj = delta_sp.indices()
+    vals = delta_sp.values()
+    pair_to_val = {(int(i), int(j)): v for i, j, v in zip(ii, jj, vals)}
+    assert torch.allclose(pair_to_val[(0, 1)], sp.delta_adj_raw.detach()[0])
+    assert torch.allclose(pair_to_val[(1, 0)], sp.delta_adj_raw.detach()[0])
+    assert torch.allclose(pair_to_val[(1, 2)], sp.delta_adj_raw.detach()[1])
+    assert torch.allclose(pair_to_val[(2, 1)], sp.delta_adj_raw.detach()[1])
+
+
 def test_gradnet_dense_and_sparse_backends_and_forward_addition():
     # Dense mask path
     N = 3
@@ -161,9 +213,9 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
         adj0=torch.eye(N),
         delta_sign="nonnegative",
         final_sign="nonnegative",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((N, N)),
         cost_aggr_norm=1,
         device="cpu",
@@ -176,7 +228,8 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
     assert torch.allclose(torch.diag(A), torch.ones(N))
 
     # Sparse mask path
-    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 0]])  # include a cycle (0,1),(1,2),(2,0)
+    # include a cycle and reverse entries so the undirected mask is symmetric
+    mask_idx = torch.tensor([[0, 1, 2, 1, 2, 0], [1, 2, 0, 0, 1, 2]])
     mask_val = torch.ones(mask_idx.shape[1])
     mask_sparse = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
     gn_sparse = GradNet(
@@ -186,9 +239,9 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
         adj0=torch.zeros((N, N)),
         delta_sign="free",
         final_sign="free",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((N, N)),
         cost_aggr_norm=2,
         device="cpu",
@@ -209,9 +262,9 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
         adj0=torch.zeros((N, N)),
         delta_sign="nonnegative",
         final_sign="nonpositive",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((N, N)),
         cost_aggr_norm=1,
         device="cpu",
@@ -222,10 +275,123 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
     assert torch.all(A3 <= 0)
 
 
+def test_gradnet_should_renorm_after_step():
+    mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]])
+
+    gn_constrained = GradNet(
+        num_nodes=2,
+        budget=1.0,
+        mask=mask,
+        strict_budget=True,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    assert gn_constrained.should_renorm_after_step() is True
+
+    gn_unconstrained = GradNet(
+        num_nodes=2,
+        budget=None,
+        mask=mask,
+        strict_budget=True,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    assert gn_unconstrained.should_renorm_after_step() is False
+
+    gn_non_strict = GradNet(
+        num_nodes=2,
+        budget=1.0,
+        mask=mask,
+        strict_budget=False,
+        device="cpu",
+        dtype=torch.float32,
+    )
+    assert gn_non_strict.should_renorm_after_step() is False
+
+
+@pytest.mark.parametrize("which", ["mask", "adj0", "cost_matrix"])
+def test_gradnet_directed_false_requires_symmetric_inputs(which):
+    N = 3
+    mask = torch.ones((N, N)) - torch.eye(N)
+    adj0 = torch.zeros((N, N))
+    cost = torch.ones((N, N))
+
+    if which == "mask":
+        mask = torch.tensor([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+    elif which == "adj0":
+        adj0 = torch.tensor([[0.0, 1.0, 0.0], [0.0, 0.0, 2.0], [0.0, 2.0, 0.0]])
+    elif which == "cost_matrix":
+        cost = torch.tensor([[0.0, 3.0, 0.0], [1.0, 0.0, 2.0], [0.0, 2.0, 0.0]])
+
+    with pytest.raises(ValueError, match=f"requires {which} to be symmetric"):
+        GradNet(
+            num_nodes=N,
+            budget=1.0,
+            mask=mask,
+            adj0=adj0,
+            cost_matrix=cost,
+            directed=False,
+            device="cpu",
+            dtype=torch.float32,
+        )
+
+
+def test_gradnet_warns_if_adj0_violates_requested_final_sign():
+    with pytest.warns(RuntimeWarning, match="adj0 violates requested final_sign"):
+        gn = GradNet(
+            num_nodes=2,
+            budget=1.0,
+            mask=torch.tensor([[0.0, 1.0], [1.0, 0.0]]),
+            adj0=torch.tensor([[0.0, -0.5], [-0.5, 0.0]]),
+            delta_sign="free",
+            final_sign="nonnegative",
+            directed=False,
+            cost_matrix=torch.ones((2, 2)),
+            device="cpu",
+            dtype=torch.float32,
+        )
+    assert gn.final_sign == "nonnegative"
+
+
+def test_gradnet_matching_delta_and_final_sign_sets_final_to_free():
+    gn = GradNet(
+        num_nodes=2,
+        budget=1.0,
+        mask=torch.tensor([[0.0, 1.0], [1.0, 0.0]]),
+        adj0=torch.tensor([[0.0, 0.5], [0.5, 0.0]]),
+        delta_sign="nonnegative",
+        final_sign="nonnegative",
+        directed=False,
+        cost_matrix=torch.ones((2, 2)),
+        device="cpu",
+        dtype=torch.float32,
+    )
+    assert gn.final_sign == "free"
+
+
+def test_gradnet_warns_on_conflicting_delta_and_final_signs():
+    with pytest.warns(RuntimeWarning, match="opposite cones"):
+        gn = GradNet(
+            num_nodes=2,
+            budget=1.0,
+            mask=torch.tensor([[0.0, 1.0], [1.0, 0.0]]),
+            adj0=torch.zeros((2, 2)),
+            delta_sign="nonnegative",
+            final_sign="nonpositive",
+            directed=False,
+            cost_matrix=torch.ones((2, 2)),
+            strict_budget=True,
+            device="cpu",
+            dtype=torch.float32,
+        )
+    assert gn.delta_sign == "nonnegative"
+    assert gn.final_sign == "nonpositive"
+
+
 def test_prepare_edge_list_and_cost_aggregation_and_gather_helpers():
     N = 4
-    # Mask with diagonal entries to be dropped and duplicate undirected entries
-    idx = torch.tensor([[0, 0, 1, 2, 3], [0, 1, 2, 1, 3]])
+    # Symmetric mask with diagonal entries to be dropped and duplicate edges
+    idx = torch.tensor([[0, 0, 1, 1, 2, 2, 3], [0, 1, 0, 2, 1, 2, 3]])
     val = torch.ones(idx.shape[1])
     mask_sparse = torch.sparse_coo_tensor(idx, val, (N, N)).coalesce()
     cost_dense = torch.zeros((N, N))
@@ -240,13 +406,18 @@ def test_prepare_edge_list_and_cost_aggregation_and_gather_helpers():
         budget=1.0,
         mask=mask_sparse,
         adj0=None,
-        undirected=True,
+        directed=False,
         device="cpu",
         dtype=torch.float32,
     )
 
     edge_index, cost_p_sum = gn._prepare_edge_list(
-        mask=mask_sparse, cost_matrix=cost_dense, undirected=True, p=2, dtype=torch.float32, device=torch.device("cpu")
+        mask=mask_sparse,
+        cost_matrix=cost_dense,
+        directed=False,
+        p=2,
+        dtype=torch.float32,
+        device=torch.device("cpu"),
     )
     # unique undirected edges among [(0,1),(1,2)] from the mask (diagonal dropped)
     expected = set([(0, 1), (1, 2)])
@@ -258,7 +429,12 @@ def test_prepare_edge_list_and_cost_aggregation_and_gather_helpers():
     # _gather_sparse_values tested implicitly via cost aggregation above, but also check sparse path
     cost_sparse = cost_dense.to_sparse().coalesce()
     edge_index2, cost_p_sum2 = gn._prepare_edge_list(
-        mask=mask_sparse, cost_matrix=cost_sparse, undirected=True, p=2, dtype=torch.float32, device=torch.device("cpu")
+        mask=mask_sparse,
+        cost_matrix=cost_sparse,
+        directed=False,
+        p=2,
+        dtype=torch.float32,
+        device=torch.device("cpu"),
     )
     assert torch.equal(edge_index2, edge_index)
     assert torch.allclose(cost_p_sum2, cost_p_sum)
@@ -276,9 +452,9 @@ def test_to_networkx_prunes_and_types():
         budget=1.0,
         mask=mask,
         adj0=torch.zeros((N, N)),
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         device="cpu",
         dtype=torch.float32,
     )
@@ -304,9 +480,9 @@ def test_to_networkx_directed_graph_edges():
         budget=1.0,
         mask=mask,
         adj0=torch.zeros((N, N)),
-        undirected=False,
+        directed=True,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         device="cpu",
         dtype=torch.float32,
     )
@@ -314,7 +490,12 @@ def test_to_networkx_directed_graph_edges():
     assert isinstance(net, nx.DiGraph)
     # With directed graph, (i,j) and (j,i) are distinct; since initialization is
     # symmetric here, expect both directions to exist for at least one pair.
-    assert any(net.has_edge(i, j) and net.has_edge(j, i) for i in range(N) for j in range(N) if i != j)
+    assert any(
+        net.has_edge(i, j) and net.has_edge(j, i)
+        for i in range(N)
+        for j in range(N)
+        if i != j
+    )
     # Total directed edges equals N*(N-1) for a fully masked dense case.
     assert net.number_of_edges() == N * (N - 1)
 
@@ -333,9 +514,9 @@ def test_to_networkx_directed_with_asymmetric_mask():
         budget=1.0,
         mask=mask,
         adj0=torch.zeros((N, N)),
-        undirected=False,
+        directed=True,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         device="cpu",
         dtype=torch.float32,
     )
@@ -360,8 +541,8 @@ def test_denseparam_dof_renorm_scale():
         mask=mask,
         cost_matrix=torch.ones((N, N)),
         delta_sign="free",
-        undirected=True,
-        use_budget_up=True,
+        directed=False,
+        strict_budget=True,
         cost_aggr_norm=1,
         rand_init_weights=False,
     )
@@ -374,19 +555,31 @@ def test_denseparam_dof_renorm_scale():
 def test_prepare_edge_list_none_cost_returns_unit_weights():
     N = 4
     # Undirected unique edges: (0,1),(1,2)
-    mask_idx = torch.tensor([[0, 1], [1, 2]])
-    mask_val = torch.ones(2)
+    mask_idx = torch.tensor([[0, 1, 1, 2], [1, 2, 0, 1]])
+    mask_val = torch.ones(mask_idx.shape[1])
     mask_sp = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
-    gn = GradNet(num_nodes=N, budget=1.0, mask=mask_sp, undirected=True, device="cpu", dtype=torch.float32)
+    gn = GradNet(
+        num_nodes=N,
+        budget=1.0,
+        mask=mask_sp,
+        directed=False,
+        device="cpu",
+        dtype=torch.float32,
+    )
     edge_index, cost_p_sum = gn._prepare_edge_list(
-        mask=mask_sp, cost_matrix=None, undirected=True, p=1, dtype=torch.float32, device=torch.device("cpu")
+        mask=mask_sp,
+        cost_matrix=None,
+        directed=False,
+        p=1,
+        dtype=torch.float32,
+        device=torch.device("cpu"),
     )
     assert torch.allclose(cost_p_sum, torch.full((edge_index.shape[1],), 2.0))
 
 
 def test_sparse_mask_defaults_use_sparse_adj0_and_implicit_unit_costs():
     N = 4
-    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.long)
+    mask_idx = torch.tensor([[0, 1, 2, 1, 2, 3], [1, 2, 3, 0, 1, 2]], dtype=torch.long)
     mask_val = torch.ones(mask_idx.shape[1], dtype=torch.float32)
     mask_sp = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
 
@@ -396,9 +589,9 @@ def test_sparse_mask_defaults_use_sparse_adj0_and_implicit_unit_costs():
         mask=mask_sp,
         adj0=None,
         cost_matrix=None,
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         device="cpu",
         dtype=torch.float32,
     )
@@ -413,13 +606,15 @@ def test_sparse_mask_defaults_use_sparse_adj0_and_implicit_unit_costs():
     A = gn()
     assert A.layout == torch.sparse_coo
 
-    # With implicit unit costs and undirected=True, each unique edge gets 1^p + 1^p = 2.
-    assert torch.allclose(gn.param.cost_p_sum, torch.full_like(gn.param.cost_p_sum, 2.0))
+    # With implicit unit costs and directed=False, each unique edge gets 1^p + 1^p = 2.
+    assert torch.allclose(
+        gn.param.cost_p_sum, torch.full_like(gn.param.cost_p_sum, 2.0)
+    )
 
 
 def test_sparse_mask_init_does_not_materialize_dense_default_mask(monkeypatch):
     N = 8
-    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.long)
+    mask_idx = torch.tensor([[0, 1, 2, 1, 2, 3], [1, 2, 3, 0, 1, 2]], dtype=torch.long)
     mask_val = torch.ones(mask_idx.shape[1], dtype=torch.float32)
     mask_sp = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
 
@@ -442,13 +637,17 @@ def test_sparse_mask_init_does_not_materialize_dense_default_mask(monkeypatch):
     def guarded_ones(*args, **kwargs):
         shape = _shape_from_args(args, kwargs)
         if shape == (N, N):
-            raise AssertionError("Dense NxN default mask allocation should not occur for sparse masks.")
+            raise AssertionError(
+                "Dense NxN default mask allocation should not occur for sparse masks."
+            )
         return orig_ones(*args, **kwargs)
 
     def guarded_eye(n, m=None, *args, **kwargs):
         cols = n if m is None else m
         if int(n) == N and int(cols) == N:
-            raise AssertionError("Dense NxN identity allocation should not occur for sparse masks.")
+            raise AssertionError(
+                "Dense NxN identity allocation should not occur for sparse masks."
+            )
         if m is None:
             return orig_eye(n, *args, **kwargs)
         return orig_eye(n, m, *args, **kwargs)
@@ -456,7 +655,9 @@ def test_sparse_mask_init_does_not_materialize_dense_default_mask(monkeypatch):
     def guarded_zeros(*args, **kwargs):
         shape = _shape_from_args(args, kwargs)
         if shape == (N, N):
-            raise AssertionError("Dense NxN zero allocation should not occur for sparse masks.")
+            raise AssertionError(
+                "Dense NxN zero allocation should not occur for sparse masks."
+            )
         return orig_zeros(*args, **kwargs)
 
     monkeypatch.setattr(torch, "ones", guarded_ones)
@@ -469,9 +670,9 @@ def test_sparse_mask_init_does_not_materialize_dense_default_mask(monkeypatch):
         mask=mask_sp,
         adj0=None,
         cost_matrix=None,
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         device="cpu",
         dtype=torch.float32,
     )
@@ -492,9 +693,9 @@ def test_gradnet_export_and_from_config_roundtrip():
         adj0=adj0,
         delta_sign="nonnegative",
         final_sign="nonnegative",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=cost,
         cost_aggr_norm=1,
         device="cpu",
@@ -508,8 +709,8 @@ def test_gradnet_export_and_from_config_roundtrip():
     assert math.isclose(gn_rebuilt.budget, gn.budget)
     assert gn_rebuilt.delta_sign == gn.delta_sign
     assert gn_rebuilt.final_sign == gn.final_sign
-    assert gn_rebuilt.undirected == gn.undirected
-    assert gn_rebuilt.use_budget_up == gn.use_budget_up
+    assert gn_rebuilt.directed == gn.directed
+    assert gn_rebuilt.strict_budget == gn.strict_budget
     assert gn_rebuilt.cost_aggr_norm == gn.cost_aggr_norm
     assert torch.allclose(gn_rebuilt.mask, gn.mask)
     assert torch.allclose(gn_rebuilt.adj0, gn.adj0)
@@ -529,9 +730,9 @@ def test_gradnet_from_checkpoint_roundtrip(tmp_path):
         adj0=torch.zeros((2, 2), dtype=torch.float32),
         delta_sign="nonnegative",
         final_sign="nonnegative",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=cost,
         cost_aggr_norm=1,
         device="cpu",
@@ -540,7 +741,7 @@ def test_gradnet_from_checkpoint_roundtrip(tmp_path):
 
     def loss_fn(model: GradNet):
         A = model()
-        loss = (A ** 2).mean()
+        loss = (A**2).mean()
         return loss, {"adj_sum": A.sum()}
 
     ckpt_dir = tmp_path / "ckpt"

@@ -2,19 +2,24 @@ import pytest
 
 try:
     import scipy  # noqa: F401
+
     SCIPY_AVAILABLE = True
 except Exception:  # pragma: no cover - environment dependent
     SCIPY_AVAILABLE = False
 
 # Skip whole module if SciPy or Torch missing
-pytestmark = pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy is required for shortest_path tests")
+pytestmark = pytest.mark.skipif(
+    not SCIPY_AVAILABLE, reason="SciPy is required for shortest_path tests"
+)
 torch = pytest.importorskip("torch")
 
 
-from gradnet.utils import shortest_path  # noqa: E402
+from gradnet.utils import _shortest_path as shortest_path  # noqa: E402
 
 
-def make_path_graph(N: int = 5, weights=None, sparse: bool = False, dtype=torch.float64):
+def make_path_graph(
+    N: int = 5, weights=None, sparse: bool = False, dtype=torch.float64
+):
     """Build a path graph adjacency of size N with given edge weights.
     Nodes are 0..N-1 and edges are (i, i+1) for i in 0..N-2.
     """
@@ -40,7 +45,9 @@ def make_path_graph(N: int = 5, weights=None, sparse: bool = False, dtype=torch.
     return torch.sparse_coo_tensor(indices, values, size=(N, N)).coalesce()
 
 
-def make_star_graph(N: int = 5, center: int = 0, weights=None, sparse: bool = False, dtype=torch.float64):
+def make_star_graph(
+    N: int = 5, center: int = 0, weights=None, sparse: bool = False, dtype=torch.float64
+):
     """Build a star graph adjacency of size N with given edge weights from center to leaves.
     weights is a list of length N-1 mapping to leaves in ascending node order excluding center.
     """
@@ -71,8 +78,10 @@ def make_star_graph(N: int = 5, center: int = 0, weights=None, sparse: bool = Fa
 
 def expected_path_dist_matrix(weights):
     N = len(weights) + 1
+
     def cost(w):
         return float(w)
+
     D = [[0.0 for _ in range(N)] for _ in range(N)]
     for i in range(N):
         for j in range(N):
@@ -90,8 +99,10 @@ def expected_path_dist_matrix(weights):
 def expected_star_dist_matrix(N: int, center: int, weights):
     leaves = [i for i in range(N) if i != center]
     w_by_node = {leaf: float(w) for leaf, w in zip(leaves, weights)}
+
     def cost(w):
         return float(w)
+
     D = [[0.0 for _ in range(N)] for _ in range(N)]
     for i in range(N):
         for j in range(N):
@@ -158,7 +169,12 @@ def test_gradients_single_pair_path_dense():
     # Dense path graph N=5, weights 1..4
     dtype = torch.float64
     weights = [1.0, 2.0, 3.0, 4.0]
-    A = make_path_graph(N=5, weights=weights, sparse=False, dtype=dtype).detach().clone().requires_grad_(True)
+    A = (
+        make_path_graph(N=5, weights=weights, sparse=False, dtype=dtype)
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
 
     # distance from 0 -> 4 uses edges (0,1),(1,2),(2,3),(3,4) in that orientation
     d = shortest_path(A, pair=(0, 4))
@@ -172,7 +188,9 @@ def test_gradients_single_pair_path_dense():
 
     path_edges = [(0, 1), (1, 2), (2, 3), (3, 4)]
     for (u, v), gexp in zip(path_edges, expected):
-        assert torch.isclose(grad[u, v], torch.tensor(gexp, dtype=dtype), rtol=1e-7, atol=1e-9)
+        assert torch.isclose(
+            grad[u, v], torch.tensor(gexp, dtype=dtype), rtol=1e-7, atol=1e-9
+        )
 
     # Non-path (and opposite-orientation) entries should have ~0 gradient
     N = 5
@@ -184,12 +202,16 @@ def test_gradients_single_pair_path_dense():
             assert torch.isclose(grad[u, v], torch.tensor(0.0, dtype=dtype), atol=1e-10)
 
 
-
 def test_gradients_single_pair_star_dense():
     # Dense star graph N=5, center=0, leaf weights 1..4 for nodes 1..4
     dtype = torch.float64
     weights = [1.0, 2.0, 3.0, 4.0]
-    A = make_star_graph(N=5, center=0, weights=weights, sparse=False, dtype=dtype).detach().clone().requires_grad_(True)
+    A = (
+        make_star_graph(N=5, center=0, weights=weights, sparse=False, dtype=dtype)
+        .detach()
+        .clone()
+        .requires_grad_(True)
+    )
 
     # Pair leaf1->leaf2 traverses edges (0,2) then (1,0) in predecessor backtrack
     d = shortest_path(A, pair=(1, 2))
@@ -199,8 +221,12 @@ def test_gradients_single_pair_star_dense():
     grad = A.grad.detach()
 
     # Edges used: (0,2) with weight 2, and (1,0) with weight 1
-    assert torch.isclose(grad[0, 2], torch.tensor(1.0, dtype=dtype), rtol=1e-7, atol=1e-9)
-    assert torch.isclose(grad[1, 0], torch.tensor(1.0, dtype=dtype), rtol=1e-7, atol=1e-9)
+    assert torch.isclose(
+        grad[0, 2], torch.tensor(1.0, dtype=dtype), rtol=1e-7, atol=1e-9
+    )
+    assert torch.isclose(
+        grad[1, 0], torch.tensor(1.0, dtype=dtype), rtol=1e-7, atol=1e-9
+    )
 
     # Others ~0
     N = 5
@@ -210,6 +236,5 @@ def test_gradients_single_pair_star_dense():
             if (u, v) in used:
                 continue
             assert torch.isclose(grad[u, v], torch.tensor(0.0, dtype=dtype), atol=1e-10)
-
 
     # Removed pruning tests: simplified API has no pruning/invert options

@@ -11,9 +11,8 @@ from typing import Mapping, Optional, Union
 import csv
 
 
-
 def random_seed(seed):
-    '''Set random seed for reproducibility. Works with torch, numpy, and random.'''
+    """Set random seed for reproducibility. Works with torch, numpy, and random."""
     torch.use_deterministic_algorithms(True)
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -88,7 +87,9 @@ def prune_edges(
 
     # Apply pruning using the resolved threshold
     norm = torch.abs(del_adj).sum()
-    pruned = torch.where(torch.abs(del_adj) < float(threshold), torch.zeros_like(del_adj), del_adj)
+    pruned = torch.where(
+        torch.abs(del_adj) < float(threshold), torch.zeros_like(del_adj), del_adj
+    )
     if not renorm:
         return pruned
     pruned_norm = torch.abs(pruned).sum()
@@ -105,7 +106,7 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
 
     :param pruning_threshold: Minimum absolute weight to keep an edge.
     :type pruning_threshold: float
-    :return: A ``networkx.Graph`` if ``undirected`` else a ``DiGraph``.
+    :return: A ``networkx.DiGraph`` if ``directed`` else a ``Graph``.
     :rtype: networkx.Graph | networkx.DiGraph
     """
     try:
@@ -115,7 +116,8 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
             "to_networkx requires the optional 'networkx' extra; install it with"
             " `pip install gradnet[networkx]`."
         ) from exc
-    net = nx.Graph() if gn.undirected else nx.DiGraph()
+    directed = gn.directed
+    net = nx.DiGraph() if directed else nx.Graph()
     net.add_nodes_from(range(gn.num_nodes))
 
     A = gn()
@@ -123,7 +125,7 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
         A = A.coalesce()
         idx = A.indices().t().tolist()
         vals = A.values().detach().cpu().tolist()
-        if gn.undirected:
+        if not directed:
             seen = set()
             for (i, j), w in zip(idx, vals):
                 if i == j:
@@ -140,9 +142,13 @@ def to_networkx(gn, pruning_threshold: float = 1e-8):
                     net.add_edge(int(i), int(j), weight=float(w))
     else:
         adj = A.detach().cpu()
-        m = gn.mask.to_dense() if isinstance(gn.mask, torch.Tensor) and gn.mask.layout != torch.strided else gn.mask
+        m = (
+            gn.mask.to_dense()
+            if isinstance(gn.mask, torch.Tensor) and gn.mask.layout != torch.strided
+            else gn.mask
+        )
         for i in range(gn.num_nodes):
-            j_range = range(i + 1, gn.num_nodes) if gn.undirected else range(gn.num_nodes)
+            j_range = range(gn.num_nodes) if directed else range(i + 1, gn.num_nodes)
             for j in j_range:
                 w = float(adj[i, j])
                 if abs(w) > pruning_threshold and (m[i, j] != 0):
@@ -170,13 +176,15 @@ def plot_adjacency_heatmap(
       or any array-like representing an adjacency.
     """
     import matplotlib.pyplot as plt
-    
+
     # Resolve input to a NumPy array adjacency
     if isinstance(gn, torch.Tensor):
         data = gn.detach().cpu().numpy()
     elif callable(gn):  # GradNet or similar returning adjacency via __call__
         A = gn()
-        data = A.detach().cpu().numpy() if isinstance(A, torch.Tensor) else np.asarray(A)
+        data = (
+            A.detach().cpu().numpy() if isinstance(A, torch.Tensor) else np.asarray(A)
+        )
     else:
         data = np.asarray(gn)
     imshow_kwargs = {} if imshow_kwargs is None else dict(imshow_kwargs)
@@ -218,6 +226,7 @@ def plot_graph(
     import matplotlib.pyplot as plt
     from matplotlib.cm import ScalarMappable
     import numpy as np
+
     try:
         import networkx as nx
     except ImportError as exc:
@@ -287,48 +296,52 @@ def load_scalars(log_dir: Union[str, Path]):
     def _is_version_dir(p: Path) -> bool:
         if not p.is_dir():
             return False
-        if (p / 'metrics.csv').exists():
+        if (p / "metrics.csv").exists():
             return True
         for f in p.iterdir():
-            if f.is_file() and f.name.startswith('events.out.tfevents'):
+            if f.is_file() and f.name.startswith("events.out.tfevents"):
                 return True
         return False
 
     def _find_version_dir(base: Path) -> Path:
         if _is_version_dir(base):
             return base
-        candidates = [d for d in base.iterdir() if d.is_dir() and d.name.startswith('version')]
+        candidates = [
+            d for d in base.iterdir() if d.is_dir() and d.name.startswith("version")
+        ]
         if not candidates:
             return base  # best effort; may still contain event files directly
+
         def _ver_num(p: Path) -> int:
             name = p.name
             try:
-                return int(name.split('_')[-1])
+                return int(name.split("_")[-1])
             except Exception:
                 return -1
+
         candidates.sort(key=lambda p: (_ver_num(p), p.stat().st_mtime))
         return candidates[-1]
 
     version_dir = _find_version_dir(root)
 
     # 1) Try CSV (CSVLogger)
-    csv_path = version_dir / 'metrics.csv'
+    csv_path = version_dir / "metrics.csv"
     if csv_path.exists():
         # aggregate rows per x (epoch preferred, else step/global_step, else row index)
         per_x: dict[int, dict[str, float]] = {}
         metric_names: set[str] = set()
         next_row_index = 0
-        with csv_path.open(newline='') as f:
+        with csv_path.open(newline="") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
-            long_format = ('metric' in fieldnames and 'value' in fieldnames)
+            long_format = "metric" in fieldnames and "value" in fieldnames
             for row in reader:
                 # compute x for this row
-                epoch = row.get('epoch')
-                step = row.get('step') or row.get('global_step')
+                epoch = row.get("epoch")
+                step = row.get("step") or row.get("global_step")
                 x: Optional[int] = None
                 for cand in (epoch, step):
-                    if cand is not None and str(cand) != '':
+                    if cand is not None and str(cand) != "":
                         try:
                             x = int(float(cand))
                             break
@@ -339,9 +352,14 @@ def load_scalars(log_dir: Union[str, Path]):
                 next_row_index += 1
 
                 if long_format:
-                    name = row.get('metric')
-                    val = row.get('value')
-                    if name is None or val is None or val == '' or str(val).lower() == 'nan':
+                    name = row.get("metric")
+                    val = row.get("value")
+                    if (
+                        name is None
+                        or val is None
+                        or val == ""
+                        or str(val).lower() == "nan"
+                    ):
                         continue
                     try:
                         v = float(val)
@@ -352,9 +370,15 @@ def load_scalars(log_dir: Union[str, Path]):
                 else:
                     # wide format: one row per x, multiple metric columns
                     for name, val in row.items():
-                        if name in {"epoch", "step", "global_step", "time", "created_at"}:
+                        if name in {
+                            "epoch",
+                            "step",
+                            "global_step",
+                            "time",
+                            "created_at",
+                        }:
                             continue
-                        if val is None or val == '' or str(val).lower() == 'nan':
+                        if val is None or val == "" or str(val).lower() == "nan":
                             continue
                         try:
                             v = float(val)
@@ -367,7 +391,9 @@ def load_scalars(log_dir: Union[str, Path]):
             return [], {}
         steps = sorted(per_x.keys())
         # Build aligned series with NaNs for missing values
-        series: dict[str, list[float]] = {name: [float('nan')] * len(steps) for name in sorted(metric_names)}
+        series: dict[str, list[float]] = {
+            name: [float("nan")] * len(steps) for name in sorted(metric_names)
+        }
         index_of = {s: i for i, s in enumerate(steps)}
         for s, vals in per_x.items():
             i = index_of[s]
@@ -387,9 +413,9 @@ def load_scalars(log_dir: Union[str, Path]):
 
     # If the provided directory is not a version dir, EventAccumulator can still
     # discover event files within it.
-    ea = EventAccumulator(str(version_dir), size_guidance={'scalars': 0})
+    ea = EventAccumulator(str(version_dir), size_guidance={"scalars": 0})
     ea.Reload()
-    scalar_tags = list(ea.Tags().get('scalars', []))
+    scalar_tags = list(ea.Tags().get("scalars", []))
     if not scalar_tags:
         return [], {}
     # unify steps across all tags
@@ -402,7 +428,9 @@ def load_scalars(log_dir: Union[str, Path]):
             step_set.add(int(e.step))
     steps = sorted(step_set)
     idx = {s: i for i, s in enumerate(steps)}
-    series: dict[str, list[float]] = {tag: [float('nan')] * len(steps) for tag in scalar_tags}
+    series: dict[str, list[float]] = {
+        tag: [float("nan")] * len(steps) for tag in scalar_tags
+    }
     for tag, ev in per_tag_events.items():
         for e in ev:
             ii = idx[int(e.step)]
@@ -433,9 +461,13 @@ def animate_adjacency(
     fps = max(1, int(fps))
     root = Path(checkpoints)
     if root.is_dir():
-        ckpts = sorted(p for p in root.glob('gn-periodic-*.ckpt') if p.is_file())
+        ckpts = sorted(p for p in root.glob("gn-periodic-*.ckpt") if p.is_file())
     else:
-        matches = root.is_file() and root.name.startswith('gn-periodic-') and root.suffix == '.ckpt'
+        matches = (
+            root.is_file()
+            and root.name.startswith("gn-periodic-")
+            and root.suffix == ".ckpt"
+        )
         ckpts = [root] if matches else []
 
     if not ckpts:
@@ -444,18 +476,22 @@ def animate_adjacency(
 
     adjacencies = []
     for path in ckpts:
-        model = GradNet.from_checkpoint(str(path), map_location='cpu')
+        model = GradNet.from_checkpoint(str(path), map_location="cpu")
         adjacencies.append(model.to_numpy())
 
     show_kwargs = {} if imshow_kwargs is None else dict(imshow_kwargs)
-    show_kwargs.setdefault('vmin', min(float(adj.min()) for adj in adjacencies))
-    show_kwargs.setdefault('vmax', max(float(adj.max()) for adj in adjacencies))
+    show_kwargs.setdefault("vmin", min(float(adj.min()) for adj in adjacencies))
+    show_kwargs.setdefault("vmax", max(float(adj.max()) for adj in adjacencies))
 
     fig, ax = plt.subplots(figsize=figsize)
     im = plot_adjacency_heatmap(
         adjacencies[0],
         ax=ax,
-        title=title_template.format(index=0, name=ckpts[0].name) if title_template else None,
+        title=(
+            title_template.format(index=0, name=ckpts[0].name)
+            if title_template
+            else None
+        ),
         imshow_kwargs=show_kwargs,
     )
 
@@ -465,7 +501,9 @@ def animate_adjacency(
             ax.set_title(title_template.format(index=index, name=ckpts[index].name))
         return [im]
 
-    ani = mpl_animation.FuncAnimation(fig, _update, frames=len(adjacencies), interval=1000.0 / fps)
+    ani = mpl_animation.FuncAnimation(
+        fig, _update, frames=len(adjacencies), interval=1000.0 / fps
+    )
 
     saved_path: Optional[Path] = None
     temporary_path: Optional[Path] = None
@@ -487,7 +525,9 @@ def animate_adjacency(
                 temporary_path = Path(tmp.name)
                 target_path = temporary_path
             except Exception as exc:
-                warnings.warn(f"Unable to allocate temporary file for MP4 animation: {exc}")
+                warnings.warn(
+                    f"Unable to allocate temporary file for MP4 animation: {exc}"
+                )
                 target_path = None
 
         if target_path is not None:
@@ -501,7 +541,9 @@ def animate_adjacency(
                 temporary_path = None
                 saved_path = None
     if saved_path is None and output_path and ffmpeg_error is not None:
-        warnings.warn(f"FFMpeg writer unavailable; failed to create MP4 animation: {ffmpeg_error}")
+        warnings.warn(
+            f"FFMpeg writer unavailable; failed to create MP4 animation: {ffmpeg_error}"
+        )
 
     displayed = False
     try:
@@ -529,7 +571,9 @@ def animate_adjacency(
             pass
 
     if not displayed:
-        warnings.warn('Unable to display the animation; consider running inside a notebook environment.')
+        warnings.warn(
+            "Unable to display the animation; consider running inside a notebook environment."
+        )
 
     plt.close(fig)
 
@@ -549,10 +593,11 @@ def regularization_loss(del_adj: torch.Tensor) -> torch.Tensor:
     """
     # f = lambda x: torch.sigmoid(x)
     f = lambda x: torch.log(x + 1)
-    return torch.sum(f(torch.abs(del_adj)))/del_adj.shape[-1]
+    return torch.sum(f(torch.abs(del_adj))) / del_adj.shape[-1]
 
 
 ################################################################################# private utils
+
 
 def _to_like_struct(obj, like: torch.Tensor):
     """Recursively move/cast tensors (and NumPy) inside obj to like.device/dtype; leave others as-is."""
@@ -571,7 +616,8 @@ def _to_like_struct(obj, like: torch.Tensor):
     if isinstance(obj, (list, tuple)):
         typ = obj.__class__
         return typ(_to_like_struct(v, like) for v in obj)
-    return obj  # nn.Module or anything else stays as-is 
+    return obj  # nn.Module or anything else stays as-is
+
 
 def _shortest_path(A: torch.Tensor, pair="full"):
     """Compute shortest path distances with SciPy and preserve Torch grads.
@@ -603,9 +649,9 @@ def _shortest_path(A: torch.Tensor, pair="full"):
 
     N = A.shape[0]
 
-    # Infer undirectedness by symmetry (tolerant). Symmetric => undirected.
+    # Infer directionality by symmetry (tolerant).
     Adense_for_sym = A.to_dense() if A.layout != torch.strided else A
-    undirected = torch.allclose(Adense_for_sym, Adense_for_sym.T)
+    directed = not torch.allclose(Adense_for_sym, Adense_for_sym.T)
 
     # Build SciPy graph (costs) from Torch
     if A.layout != torch.strided:
@@ -618,10 +664,10 @@ def _shortest_path(A: torch.Tensor, pair="full"):
         # zeros off-diagonal represent no edge for csgraph; keep diagonal zeros
         C = A.detach().cpu().numpy()
 
-    directed = not undirected
-
     # Helper to reconstruct Torch-summed cost along predecessor path
-    def _reconstruct_cost_from_predecessors(src: int, dst: int, pred_row: np.ndarray) -> torch.Tensor:
+    def _reconstruct_cost_from_predecessors(
+        src: int, dst: int, pred_row: np.ndarray
+    ) -> torch.Tensor:
         if src == dst:
             # return a dense scalar to avoid sparse/dense copy issues downstream
             return torch.zeros((), dtype=A.dtype, device=A.device)
@@ -633,14 +679,18 @@ def _shortest_path(A: torch.Tensor, pair="full"):
         while k != src:
             pk = int(pred_row[k])
             if pk == -9999 or pk < 0:
-                return torch.tensor(float("inf"), dtype=A.dtype, device=A.device)  # unreachable
+                return torch.tensor(
+                    float("inf"), dtype=A.dtype, device=A.device
+                )  # unreachable
             total = total + Adense[pk, k]
             k = pk
         return total
 
     if pair == "full":
         # Compute all-pairs predecessors once
-        dist_np, pred_np = sp_shortest_path(C, directed=directed, return_predecessors=True, unweighted=False)
+        dist_np, pred_np = sp_shortest_path(
+            C, directed=directed, return_predecessors=True, unweighted=False
+        )
         # Reconstruct distances via Torch sums along chosen paths
         out = torch.empty((N, N), device=A.device, dtype=A.dtype)
         Adense = A.to_dense() if (A.layout != torch.strided) else A
@@ -656,7 +706,9 @@ def _shortest_path(A: torch.Tensor, pair="full"):
                     continue
                 # unreachable?
                 if not np.isfinite(dist_np[i, j]):
-                    out[i, j] = torch.tensor(float("inf"), device=A.device, dtype=A.dtype)
+                    out[i, j] = torch.tensor(
+                        float("inf"), device=A.device, dtype=A.dtype
+                    )
                     continue
                 # backtrack using predecessors and sum torch costs along the path
                 k = j
@@ -664,7 +716,9 @@ def _shortest_path(A: torch.Tensor, pair="full"):
                 while k != i:
                     pk = int(pred_row[k])
                     if pk == -9999 or pk < 0:
-                        total = torch.tensor(float("inf"), device=A.device, dtype=A.dtype)
+                        total = torch.tensor(
+                            float("inf"), device=A.device, dtype=A.dtype
+                        )
                         break
                     total = total + cost_entry(pk, k)
                     k = pk
@@ -675,11 +729,14 @@ def _shortest_path(A: torch.Tensor, pair="full"):
     if not (isinstance(pair, (tuple, list)) and len(pair) == 2):
         raise ValueError("pair must be 'full' or a tuple (i, j)")
     i, j = int(pair[0]), int(pair[1])
-    dist_np, pred_np = sp_shortest_path(C, directed=directed, indices=i, return_predecessors=True, unweighted=False)
+    dist_np, pred_np = sp_shortest_path(
+        C, directed=directed, indices=i, return_predecessors=True, unweighted=False
+    )
     # If unreachable
     if not np.isfinite(dist_np[j]):
         return torch.tensor(float("inf"), dtype=A.dtype, device=A.device)
     return _reconstruct_cost_from_predecessors(i, j, pred_np)
+
 
 def _timeit(func):
     @wraps(func)
@@ -689,4 +746,5 @@ def _timeit(func):
         end = time.time()
         print(f"{func.__name__} took {end - start:.4f} seconds")
         return result
+
     return wrapper

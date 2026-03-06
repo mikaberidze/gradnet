@@ -53,7 +53,7 @@ num_nodes = 10
 model = GradNet(
     num_nodes=num_nodes,
     budget=1.0,
-    undirected=True,
+    directed=False,
 )
 
 adjacency = model()  # full (num_nodes, num_nodes) tensor

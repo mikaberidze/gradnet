@@ -90,8 +90,11 @@ class GradNetLightning(pl.LightningModule):
     ----------
     gn : torch.nn.Module
         Model to optimise. Typically a :class:`gradnet.GradNet`; any ``nn.Module``
-        is accepted. If the module exposes ``renorm_params()``, that method is
-        invoked after each optimizer step when ``post_step_renorm`` is ``True``.
+        is accepted. If the module exposes ``should_renorm_after_step()``,
+        it is queried to decide whether per-step renormalization should run
+        (subject to ``post_step_renorm=True``). If the module exposes
+        ``renorm_params()``, that method is invoked when renormalization is
+        enabled for the current step.
     loss_fn : LossFn
         Callable evaluated on every optimisation step as
         ``loss_fn(gn, **loss_kwargs)``. Must return either a scalar loss tensor or
@@ -111,7 +114,9 @@ class GradNetLightning(pl.LightningModule):
     grad_clip_val : float, optional
         Gradient-norm clipping threshold. ``0.0`` disables clipping.
     post_step_renorm : bool, optional
-        Call ``gn.renorm_params()`` after each optimiser step when available.
+        Master switch for post-step renormalization. When ``True``, the module's
+        ``should_renorm_after_step()`` policy is used if available; otherwise
+        renormalization runs whenever ``renorm_params()`` is available.
     monitor_key : str, optional
         Metric name under which the primary loss is logged.
     compile_model : bool, optional
@@ -177,7 +182,8 @@ class GradNetLightning(pl.LightningModule):
 
         Computes ``loss_fn(gn, **loss_kwargs)``, backpropagates, clips
         gradients if configured, takes an optimizer step, optionally calls
-        ``gn.renorm_params()``, and logs loss/metrics.
+        ``gn.renorm_params()`` according to post-step renorm policy, and logs
+        loss/metrics.
 
         :param batch: Dummy batch (unused).
         :param batch_idx: Training step index.
@@ -197,8 +203,8 @@ class GradNetLightning(pl.LightningModule):
         opt.step()
         opt.zero_grad(set_to_none=True)
 
-        # required: renormalize after each update
-        if self.post_step_renorm and hasattr(self.gn, "renorm_params"):
+        # optional: renormalize after each update according to model policy
+        if self._should_post_step_renorm() and hasattr(self.gn, "renorm_params"):
             self.gn.renorm_params()
 
         self.log(self.monitor_key, loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True, batch_size=1)
@@ -207,6 +213,15 @@ class GradNetLightning(pl.LightningModule):
             self.log(k, v, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True, batch_size=1)
 
         return loss.detach()
+
+    def _should_post_step_renorm(self) -> bool:
+        """Return whether to run ``renorm_params()`` after this optimizer step."""
+        if not self.post_step_renorm:
+            return False
+        policy = getattr(self.gn, "should_renorm_after_step", None)
+        if callable(policy):
+            return bool(policy())
+        return True
 
     def configure_optimizers(self):
         """Construct optimizer (and optional LR scheduler) for Lightning.
@@ -391,7 +406,9 @@ def fit(
     grad_clip_val : float, optional
         Gradient-norm clipping threshold applied before optimiser steps.
     post_step_renorm : bool, optional
-        Call ``gn.renorm_params()`` after each optimiser step when available.
+        Master switch for post-step renormalization. When enabled, if ``gn``
+        exposes ``should_renorm_after_step()``, that policy decides whether
+        ``gn.renorm_params()`` runs after each optimizer step.
     compile_model : bool, optional
         Attempt to wrap ``gn`` with :func:`torch.compile` during setup.
     seed : int | None, optional

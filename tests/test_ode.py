@@ -12,7 +12,7 @@ import torch.nn as nn
 
 # Ensure `src/` is on sys.path for local imports when using a src layout
 THIS_DIR = os.path.dirname(__file__)
-SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir, 'src'))
+SRC_DIR = os.path.abspath(os.path.join(THIS_DIR, os.pardir, "src"))
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
@@ -67,7 +67,9 @@ def test_dtype_and_alignment_and_solver_options():
     assert t_out.dtype == torch.float64
     assert y.dtype == torch.float64
     # zero dynamics -> constant solution
-    assert _close(y[0], y[-1]) and _close(y[0], torch.tensor([3.0], dtype=torch.float64))
+    assert _close(y[0], y[-1]) and _close(
+        y[0], torch.tensor([3.0], dtype=torch.float64)
+    )
 
 
 def test_f_kwargs_type_error():
@@ -77,11 +79,14 @@ def test_f_kwargs_type_error():
         return A[0, 0] * 0.0 * x
 
     with pytest.raises(TypeError):
-        integrate_ode(A, vf, torch.tensor([1.0]), torch.linspace(0.0, 1.0, 3), f_kwargs=[1, 2, 3])
+        integrate_ode(
+            A, vf, torch.tensor([1.0]), torch.linspace(0.0, 1.0, 3), f_kwargs=[1, 2, 3]
+        )
 
 
 class _AModule(nn.Module):
     dtype = torch.float64
+
     def __init__(self, a=0.3):
         super().__init__()
         self.a = nn.Parameter(torch.tensor(float(a)))
@@ -92,7 +97,7 @@ class _AModule(nn.Module):
 
 def _analytic_grad_linear(x0, a, T):
     # For dx/dt = a*x, L = 0.5 * x(T)^2, grad dL/da = x0^2 * T * exp(2*a*T)
-    return (x0 ** 2) * T * math.exp(2.0 * a * T)
+    return (x0**2) * T * math.exp(2.0 * a * T)
 
 
 @pytest.mark.parametrize("use_adjoint", [False, True])
@@ -158,7 +163,9 @@ def test_params_modules_in_kwargs_participate_in_adjoint():
     T = 0.8
     tt = torch.linspace(0.0, T, steps=17)
 
-    _, y = integrate_ode(A, vf, x0, tt, f_kwargs={"scale": scale}, adjoint=True, rtol=1e-7, atol=1e-7)
+    _, y = integrate_ode(
+        A, vf, x0, tt, f_kwargs={"scale": scale}, adjoint=True, rtol=1e-7, atol=1e-7
+    )
     loss = 0.5 * (y[-1, 0] ** 2)
     loss.backward()
     assert scale.b.grad is not None and torch.isfinite(scale.b.grad)
@@ -286,7 +293,9 @@ def test_track_gradients_flag_controls_requires_grad():
     assert y2.requires_grad is False
 
 
-@pytest.mark.parametrize("method", ["rk4", "dopri5"])  # require torchdiffeq to support both
+@pytest.mark.parametrize(
+    "method", ["rk4", "dopri5"]
+)  # require torchdiffeq to support both
 def test_solver_methods_run_and_shapes(method):
     A = torch.tensor([[0.5]])
 
@@ -310,9 +319,9 @@ def test_dtype_alignment_with_gradnet_and_nested_kwargs():
         adj0=torch.zeros((N, N)),
         delta_sign="free",
         final_sign="free",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((N, N)),
         cost_aggr_norm=1,
         device="cpu",
@@ -333,7 +342,10 @@ def test_dtype_alignment_with_gradnet_and_nested_kwargs():
     assert y.dtype == torch.float64
 
 
-@pytest.mark.xfail(reason="torchdiffeq may underflow dt for adjoint+event+reverse-time on some versions", strict=False)
+@pytest.mark.xfail(
+    reason="torchdiffeq may underflow dt for adjoint+event+reverse-time on some versions",
+    strict=False,
+)
 def test_event_with_adjoint_and_reverse_time():
     # x' = +1, reverse-time search from t0=1 to t=0 when x crosses 0
     def vf(t, x, A):
@@ -371,7 +383,9 @@ def test_sparse_gradnet_works_with_ode_by_providing_dense_A():
     """
     N = 3
     # Sparse mask allowing a small set of undirected edges
-    mask_idx = torch.tensor([[0, 1, 2], [1, 2, 0]], dtype=torch.long)
+    mask_idx = torch.tensor(
+        [[0, 1, 2, 1, 2, 0], [1, 2, 0, 0, 1, 2]], dtype=torch.long
+    )
     mask_val = torch.ones(mask_idx.shape[1], dtype=torch.float32)
     mask_sparse = torch.sparse_coo_tensor(mask_idx, mask_val, (N, N)).coalesce()
 
@@ -387,9 +401,9 @@ def test_sparse_gradnet_works_with_ode_by_providing_dense_A():
         adj0=adj0_sparse,
         delta_sign="nonnegative",
         final_sign="nonnegative",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((N, N)),
         cost_aggr_norm=1,
         device="cpu",

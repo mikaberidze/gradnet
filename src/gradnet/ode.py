@@ -14,11 +14,13 @@ adjacency matrix (e.g., produced by a :class:`gradnet.GradNet`). It offers:
 The public API mirrors the style used in :mod:`gradnet.trainer` so the
 docstrings render well when building documentation with Sphinx.
 """
+
 from __future__ import annotations
 from typing import Callable, Any, Optional, Union, NamedTuple, Mapping, Sequence
 import torch
 import torch.nn as nn
 from .utils import _to_like_struct
+from torchdiffeq import odeint, odeint_adjoint, odeint_event
 
 
 class _VectorField(nn.Module):
@@ -42,6 +44,7 @@ class _VectorField(nn.Module):
         ``nn.Module`` instances found in ``kwargs`` that should also be
         registered.
     """
+
     def __init__(
         self,
         f: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor],
@@ -72,20 +75,18 @@ def integrate_ode(
     x0: Union[torch.Tensor, float, int],
     tt: torch.Tensor,
     *,
-    f_kwargs: Mapping[str, Any] | None = None,   # kwargs for f / event_fn
-
+    f_kwargs: Mapping[str, Any] | None = None,  # kwargs for f / event_fn
     method: str = "dopri5",
     rtol: float = 1e-4,
     atol: float = 1e-4,
     solver_options: Optional[dict] = None,
-
     adjoint: bool = False,
-    adjoint_options: Optional[dict] = None,             # e.g., {'norm': 'seminorm'}
+    adjoint_options: Optional[dict] = None,  # e.g., {'norm': 'seminorm'}
     adjoint_params: Optional[Sequence[torch.Tensor]] = None,  # optional override
-
-    event_fn: Optional[Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-
-    track_gradients: bool = True
+    event_fn: Optional[
+        Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+    ] = None,
+    track_gradients: bool = True,
 ):
     """Integrate an ODE ``dx/dt = f(t, x, A, **f_kwargs)`` using torchdiffeq.
 
@@ -125,8 +126,8 @@ def integrate_ode(
 
     Returns:
       tuple: ``(tt_out, x_out)`` where ``x_out`` has shape ``(len(tt_out), *x0.shape)``.
-        If an event is used, ``(tt_out, x_out, t_event, x_event)`` ``tt_out`` and ``x_out`` are 
-        truncated at the detected event time. ``t_event`` and ``x_event`` are differentiable time 
+        If an event is used, ``(tt_out, x_out, t_event, x_event)`` ``tt_out`` and ``x_out`` are
+        truncated at the detected event time. ``t_event`` and ``x_event`` are differentiable time
         time and state at the event.
 
     Raises:
@@ -196,7 +197,6 @@ def integrate_ode(
     ).to(A.device, A.dtype)
 
     # 3) Choose solver interface and kwargs
-    from torchdiffeq import odeint, odeint_adjoint, odeint_event
     ode_interface = odeint_adjoint if adjoint else odeint
     solver_options = {} if solver_options is None else solver_options
     base_kwargs = dict(rtol=rtol, atol=atol, method=method, options=solver_options)
@@ -214,6 +214,7 @@ def integrate_ode(
     try:
         # Event-aware path
         if event_fn is not None:
+
             def _efn(t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
                 return event_fn(t, x, A, **f_kwargs)
 
@@ -258,7 +259,9 @@ def integrate_ode(
                 t_event, x_event = _ret  # type: ignore[misc]
 
             # Ensure the stop time does not extend beyond the integration grid.
-            t_stop = torch.maximum(t_event, t1) if decreasing else torch.minimum(t_event, t1)
+            t_stop = (
+                torch.maximum(t_event, t1) if decreasing else torch.minimum(t_event, t1)
+            )
             # Snap tiny endpoint roundoff to the exact requested endpoint.
             if t_stop.is_floating_point():
                 eps = torch.finfo(t_stop.dtype).eps

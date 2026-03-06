@@ -153,9 +153,9 @@ def test_sparse_and_dense_encodings_match_on_grid_diffusion_event_time():
         adj0=torch.zeros((n, n), dtype=dtype),
         delta_sign="nonnegative",
         final_sign="nonnegative",
-        undirected=True,
+        directed=False,
         rand_init_weights=False,
-        use_budget_up=True,
+        strict_budget=True,
         cost_matrix=torch.ones((n, n), dtype=dtype),
         cost_aggr_norm=1,
         device="cpu",
@@ -180,8 +180,16 @@ def test_sparse_and_dense_encodings_match_on_grid_diffusion_event_time():
     x0[source_idx] = 1.0
     tt = torch.linspace(0.0, 12.0, steps=121, dtype=dtype)
 
-    t0_dense = float(_event_time(gn_dense, x0=x0, tt=tt, threshold=threshold, target_idx=target_idx).detach().cpu())
-    t0_sparse = float(_event_time(gn_sparse, x0=x0, tt=tt, threshold=threshold, target_idx=target_idx).detach().cpu())
+    t0_dense = float(
+        _event_time(gn_dense, x0=x0, tt=tt, threshold=threshold, target_idx=target_idx)
+        .detach()
+        .cpu()
+    )
+    t0_sparse = float(
+        _event_time(gn_sparse, x0=x0, tt=tt, threshold=threshold, target_idx=target_idx)
+        .detach()
+        .cpu()
+    )
     assert t0_dense == pytest.approx(t0_sparse, rel=1e-6, abs=1e-8)
     assert t0_dense < float(tt[-1])
 

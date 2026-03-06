@@ -21,7 +21,7 @@ Create a small GradNet, obtain an adjacency, and integrate a simple ODE::
        budget=1.0,
        mask=torch.ones((N, N)) - torch.eye(N),
        adj0=torch.zeros((N, N)),
-       undirected=True,
+       directed=True,
    )
 
    def vf(t, x, A):
