@@ -16,7 +16,7 @@ docstrings render well when building documentation with Sphinx.
 """
 
 from __future__ import annotations
-from typing import Callable, Any, Optional, Union, NamedTuple, Mapping, Sequence
+from typing import Callable, Any, Optional, Union, Mapping, Sequence
 import torch
 import torch.nn as nn
 from .utils import _to_like_struct
@@ -24,26 +24,7 @@ from torchdiffeq import odeint, odeint_adjoint, odeint_event
 
 
 class _VectorField(nn.Module):
-    """Internal wrapper so the adjoint can discover parameters.
-
-    The adjoint method inspects ``.parameters()`` of the module passed to
-    :mod:`torchdiffeq`. This wrapper registers the provided GradNet (if any)
-    and any ``nn.Module`` instances found inside ``f``'s keyword arguments, so
-    their parameters are included in the default adjoint parameter set.
-
-    Args:
-      f (Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]):
-        Vector field callable with signature
-        ``f(t, x, A, **kwargs) -> dxdt``.
-      A (torch.Tensor): Static adjacency or parameter tensor provided to ``f``.
-      kwargs (Mapping[str, Any] | None): Keyword arguments forwarded to ``f``.
-      gn_module (torch.nn.Module | None): Optional module (e.g., a
-        :class:`gradnet.GradNet`) to be registered so its parameters are
-        visible to the adjoint.
-      params_modules (dict[str, torch.nn.Module] | None): Mapping of names to
-        ``nn.Module`` instances found in ``kwargs`` that should also be
-        registered.
-    """
+    """Internal wrapper that exposes vector-field parameters to adjoint solves."""
 
     def __init__(
         self,
@@ -62,7 +43,6 @@ class _VectorField(nn.Module):
             for k, m in params_modules.items():
                 self.add_module(f"param_mod_{k}", m)
         self._kwargs = {} if kwargs is None else kwargs
-        self.register_buffer("_zero", torch.tensor(0.0))  # device anchor
 
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Evaluate the user vector field as ``f(t, x, A, **kwargs)``."""
@@ -159,7 +139,7 @@ def integrate_ode(
 
       (*) See also the `torchdiffeq documentation <https://github.com/rtqichen/torchdiffeq>`_ for supported methods and options.
     """
-    # 0) Build adjacency once, keep a handle to gn if it's a module (for adjoint param discovery)
+    # Build adjacency once and keep a module handle for adjoint parameter discovery.
     if callable(gn):
         gn_module = gn if isinstance(gn, nn.Module) else None
         A = gn()
@@ -172,7 +152,7 @@ def integrate_ode(
     if hasattr(A, "layout") and A.layout != torch.strided:
         A = A.to_dense()
 
-    # 1) Align inputs to A’s device/dtype
+    # Align inputs to A's device/dtype.
     x0 = _to_like_struct(x0, A)
     tt = _to_like_struct(tt, A)
 
@@ -187,7 +167,7 @@ def integrate_ode(
     # Collect any nn.Modules inside params for adjoint to see them automatically
     params_modules = {k: v for k, v in f_kwargs.items() if isinstance(v, nn.Module)}
 
-    # 2) Vector field module
+    # Wrap the vector field so adjoint sees relevant module parameters.
     vf = _VectorField(
         f=f,
         A=A,
@@ -196,7 +176,7 @@ def integrate_ode(
         params_modules=params_modules if params_modules else None,
     ).to(A.device, A.dtype)
 
-    # 3) Choose solver interface and kwargs
+    # Select solver interface and shared ODE kwargs.
     ode_interface = odeint_adjoint if adjoint else odeint
     solver_options = {} if solver_options is None else solver_options
     base_kwargs = dict(rtol=rtol, atol=atol, method=method, options=solver_options)
@@ -208,10 +188,8 @@ def integrate_ode(
             base_kwargs["adjoint_params"] = tuple(adjoint_params)
         # else: default is tuple(vf.parameters()), which now includes gn / any nn.Modules in params
 
-    # 4) Gradient mode toggle
-    prev_grad_mode = torch.is_grad_enabled()
-    torch.set_grad_enabled(track_gradients)
-    try:
+    # Temporarily switch gradient tracking mode for this solve.
+    with torch.set_grad_enabled(track_gradients):
         # Event-aware path
         if event_fn is not None:
 
@@ -222,41 +200,23 @@ def integrate_ode(
             t1 = tt[-1]
             decreasing = (t1 - t0) < 0
 
-            # Some older torchdiffeq versions do not support an explicit `t1` for
-            # odeint_event, meaning integration can run indefinitely if the event
-            # never triggers. For that case, cap the event so it will always
-            # trigger at the end of the requested interval.
+            # Cap the event so integration always terminates by the requested end.
             def _efn_capped(t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
                 g = _efn(t, x)
                 t_cap = (t - t1) if decreasing else (t1 - t)
                 t_cap = t_cap.to(dtype=g.dtype, device=g.device)
                 return torch.minimum(g, t_cap)
 
-            try:
-                _ret = odeint_event(
-                    vf,
-                    x0,
-                    t0,
-                    t1=t1,
-                    event_fn=_efn,
-                    odeint_interface=ode_interface,
-                    **base_kwargs,
-                )
-            except TypeError:
-                # Older torchdiffeq versions may not accept `t1`.
-                _ret = odeint_event(
-                    vf,
-                    x0,
-                    t0,
-                    event_fn=_efn_capped,
-                    odeint_interface=ode_interface,
-                    **base_kwargs,
-                )
-            # torchdiffeq versions differ: some return (t, x), others (t, x, index)
-            if isinstance(_ret, (tuple, list)) and len(_ret) == 3:
-                t_event, x_event, _ = _ret
-            else:
-                t_event, x_event = _ret  # type: ignore[misc]
+            _ret = odeint_event(
+                vf,
+                x0,
+                t0,
+                event_fn=_efn_capped,
+                odeint_interface=ode_interface,
+                **base_kwargs,
+            )
+            # torchdiffeq versions may return (t, x) or (t, x, index).
+            t_event, x_event = _ret[0], _ret[1]
 
             # Ensure the stop time does not extend beyond the integration grid.
             t_stop = (
@@ -286,6 +246,3 @@ def integrate_ode(
         # Standard solve
         y = ode_interface(vf, x0, tt, **base_kwargs)
         return tt, y
-
-    finally:
-        torch.set_grad_enabled(prev_grad_mode)
