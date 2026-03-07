@@ -9,7 +9,7 @@ GradNet documentation
 GradNet: A PyTorch-based framework for AI-enabled network structure optimization. 
 Define arbitrary dynamical objectives and resource constraints, then let autodiff 
 discover the architecture, from Kuramoto synchronization to quantum entanglement 
-routing, at scales exceeding 10⁶ nodes.
+routing, at scales exceeding 10⁵ nodes.
 
 .. figure:: _static/gradient_descent.png
    :alt: Illustration of the gradient-based optimization pipeline for network structure.
