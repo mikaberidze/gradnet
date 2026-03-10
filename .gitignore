@@ -43,6 +43,7 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+.virtual_documents/
 
 # Logs and run outputs
 *.log
@@ -50,6 +51,8 @@ lightning_logs/
 **/lightning_logs/
 *.ckpt
 events.out.tfevents*
+examples/kuramoto_checkpoints/
+**/kuramoto_checkpoints/
 
 # Docs (Sphinx)
 docs/build/
@@ -61,9 +64,12 @@ docs/build/jupyter_execute/
 
 # IDE / editor
 .vscode/
+.VSCodeCounter/
 .idea/
 *.sublime-workspace
 *.sublime-project
+
+# Project documentation / notes
 CLAUDE.md
 RELEASING.md
 
