@@ -1,6 +1,6 @@
 # GradNet
 
-GradNet is a PyTorch-based framework for AI-enabled optimization of networks. Define static or dynamical objectives and constraints, then discover the optimal network structures.
+GradNet is a PyTorch-based framework for AI-enabled optimization of networks. Define objectives, static or dynamical, along with structural constraints, and let gradient-based optimization find the optimal network structure.
 
 It encodes the network structure as a differentiable object with optional budget and structure constraints. It lets the users directly optimize static objectives using a lightweight PyTorch Lightning training loop. Alternatively, built-in ODE solvers can be used to define and optimize dynamical objectives.
 
@@ -52,25 +52,27 @@ Full API documentation, tutorials, and background material live at [gradnet.read
 The examples folder contains several examples of how to use GradNet.
 
 ### [Spectral optimization (algebraic connectivity)](examples/1_algebraic_connectivity.ipynb)
-Demonstrates a simple example of Configuring a `GradNet` object restricted to a grid lattice.
-It defines a simple static loss function (the algebraic connectivity). 
+
+Demonstrates a simple example of configuring a `GradNet` object restricted to a grid lattice.
+It defines a simple static loss function (the algebraic connectivity).
 Then it uses `fit` to optimize the network structure, all in the first code cell of the notebook.
 The rest of the notebook is analysis of the optimal grid and comparison of dense and sparse backends.
 
 ### [Kuramoto network optimization](examples/2_kuramoto.ipynb)
+
 A simple example of dynamical loss and usage of `integrate_ode`.
-Demonstrates structural optimization emergent sparsity with no mask.
+Demonstrates structural optimization and emergent sparsity with no mask.
 
 ### [Zachary's karate club](examples/3_karate_club.ipynb)
-An xample showing how to optimally modify existing networks.
 
+An example showing how to optimally modify existing networks.
 
 ## Modules at a glance
 
-- `gradnet.GradNet`: wraps dense and sparse parameterizations, supports directed/undirected networks, masking, custom edge-building costs etc.
+- `gradnet.GradNet`: wraps dense and sparse parameterizations, supports directed/undirected networks, masking, custom edge-building costs and more.
 - `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
 - `gradnet.fit`: PyTorch Lightning loop that optimizes a `GradNet` using user-supplied loss functions.
-- `gradnet.utils`: various helpers functions.
+- `gradnet.utils`: helper functions.
 
 ## Credits
 
@@ -79,7 +81,6 @@ GradNet relies on (and is inspired by) the following open-source projects:
 - [PyTorch](https://pytorch.org/)
 - [PyTorch Lightning](https://lightning.ai/)
 - [torchdiffeq](https://github.com/rtqichen/torchdiffeq)
-
 
 ## License
 
