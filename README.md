@@ -1,6 +1,8 @@
 # GradNet
 
-GradNet provides differentiable parameterizations of graph adjacency matrices with explicit budget and structure constraints. It pairs these parameterizations with ODE solvers and a lightweight PyTorch Lightning training loop so you can prototype network optimization problems quickly.
+GradNet is a PyTorch-based framework for AI-enabled optimization of networks. Define static or dynamical objectives and constraints, then discover the optimal network structures.
+
+It encodes the network structure as a differentiable object with optional budget and structure constraints. It lets the users directly optimize static objectives using a lightweight PyTorch Lightning training loop. Alternatively, built-in ODE solvers can be used to define and optimize dynamical objectives.
 
 <p align="center">
   <img src="docs/source/_static/gradient_descent.png"
@@ -23,7 +25,7 @@ GradNet provides differentiable parameterizations of graph adjacency matrices wi
 - Learn dense or sparse adjacency updates with norm, sign, and symmetry constraints.
 - Projected parameterizations that stay differentiable and GPU friendly.
 - Torchdiffeq-backed integration utilities for graph-driven dynamical systems.
-- Minimal Lightning trainer that wraps custom loss functions in just a few lines.
+- Minimal Lightning trainer that wraps loss functions in just a few lines.
 
 ## Installation
 
@@ -47,58 +49,21 @@ Full API documentation, tutorials, and background material live at [gradnet.read
 
 ## Quickstart
 
-### Learn a constrained adjacency
+The examples folder contains several examples of how to use GradNet.
 
-```python
-import torch
-from gradnet import GradNet
+### [Spectral optimization (algebraic connectivity)](examples/1_algebraic_connectivity.ipynb)
+Demonstrates a simple example of Configuring a `GradNet` object restricted to a grid lattice.
+It defines a simple static loss function (the algebraic connectivity). 
+Then it uses `fit` to optimize the network structure, all in the first code cell of the notebook.
+The rest of the notebook is analysis of the optimal grid and comparison of dense and sparse backends.
 
-num_nodes = 10
-model = GradNet(
-    num_nodes=num_nodes,
-    budget=1.0,
-    directed=False,
-)
+### [Kuramoto network optimization](examples/2_kuramoto.ipynb)
+A simple example of dynamical loss and usage of `integrate_ode`.
+Demonstrates structural optimization emergent sparsity with no mask.
 
-adjacency = model()  # full (num_nodes, num_nodes) tensor
-```
+### [Zachary's karate club](examples/3_karate_club.ipynb)
+An xample showing how to optimally modify existing networks.
 
-Pass a sparse COO mask via the `mask` argument to switch to the sparse backend and optimize only selected edges.
-
-### Integrate a graph-driven ODE
-
-```python
-from gradnet import integrate_ode
-
-# simple linear dynamics \dot{x} = Ax
-
-def vector_field(t, x, A):
-    return A @ x
-
-x0 = torch.randn(num_nodes)
-t_grid = torch.linspace(0.0, 1.0, 51)
-sol_t, sol_x = integrate_ode(model, vector_field, x0, t_grid)
-```
-
-### Optimize with your own loss
-
-```python
-from gradnet import GradNet, fit
-
-# encourage sparse, small-magnitude updates
-def loss_fn(g: GradNet):
-    delta = g.get_delta_adj()
-    return delta.abs().mean()
-
-fit(
-    gn=model,
-    loss_fn=loss_fn,
-    num_updates=200,
-    optim_kwargs={"lr": 1e-2}
-)
-```
-
-The trainer handles optimizer setup, logging, and checkpointing while you focus on defining the objective.
 
 ## Modules at a glance
 
@@ -106,6 +71,15 @@ The trainer handles optimizer setup, logging, and checkpointing while you focus 
 - `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
 - `gradnet.fit`: PyTorch Lightning loop that optimizes a `GradNet` using user-supplied loss functions.
 - `gradnet.utils`: various helpers functions.
+
+## Credits
+
+GradNet relies on (and is inspired by) the following open-source projects:
+
+- [PyTorch](https://pytorch.org/)
+- [PyTorch Lightning](https://lightning.ai/)
+- [torchdiffeq](https://github.com/rtqichen/torchdiffeq)
+
 
 ## License
 
