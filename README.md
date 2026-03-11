@@ -50,7 +50,7 @@ Full API documentation, tutorials, and background material live at [gradnet.read
 
 ## Quickstart
 
-A minimal setup of gradnet optimization, implemented for maximizing Algebraic connectivity. loss function has an extra minus since loss is always minimized.
+A minimal setup of gradnet optimization, implemented for maximizing Algebraic connectivity. The loss function has an extra minus since loss is always minimized.
 ```python
 from gradnet import GradNet, fit
 from gradnet.utils import plot_graph, laplacian
@@ -84,7 +84,7 @@ You can set `accelerator="cuda"` to run the optimization on the GPU.
        width="300" />
 </p>
 
-The examples folder contains several examples of how to use GradNet.
+The examples folder contains Jupyter notebooks demonstrating various features of `gradnet`.
 
 ### [Spectral optimization (algebraic connectivity)](examples/1_algebraic_connectivity.ipynb)
 
