@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gradnet"
-version = "0.3.0"
+version = "0.4.1"
 description = "Trainable graph adjacency parameterizations with ODE integration and Lightning training helpers."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,7 +27,7 @@ classifiers = [
 ]
 dependencies = [
   "torch>=2.0",
-  "numpy>=1.21,<2",
+  "numpy>=1.21",
   "pytorch-lightning>=1.9,<3",
   "tensorboard",
   "matplotlib",
@@ -36,9 +36,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-networkx = [
-  "networkx>=2.6",
-]
 examples = [
   "networkx>=2.6",
   "imageio-ffmpeg>=0.4",

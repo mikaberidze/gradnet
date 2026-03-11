@@ -20,6 +20,7 @@ It encodes the network structure as a differentiable object with optional budget
   <em>A random network rewires itself with GradNet to optimize synchronization in the Kuramoto model.</em>
 </p>
 
+
 ## Highlights
 
 - Learn dense or sparse adjacency updates with norm, sign, and symmetry constraints.
@@ -41,13 +42,47 @@ To work off the latest sources instead, clone the repository and install in edit
 pip install -e .
 ```
 
-GradNet targets Python 3.10+ and requires pip 21.3+ (run `pip install --upgrade pip` if needed). It depends on PyTorch, PyTorch Lightning, torchdiffeq, NumPy, and tqdm (installed automatically by the command above). Install the optional NetworkX helpers with `pip install 'gradnet[networkx]'` when you need conversions to `networkx` graphs or plotting utilities that rely on it.
+GradNet targets Python 3.10+ and requires pip 21.3+ (run `pip install --upgrade pip` if needed). It depends on PyTorch, PyTorch Lightning, torchdiffeq, NumPy, and tqdm (installed automatically by the command above). Examples install additional dependencies `pip install 'gradnet[examples]'`.
 
 ## Documentation
 
 Full API documentation, tutorials, and background material live at [gradnet.readthedocs.io](https://gradnet.readthedocs.io/).
 
 ## Quickstart
+
+A minimal setup of gradnet optimization, implemented for maximizing Algebraic connectivity. loss function has an extra minus since loss is always minimized.
+```python
+from gradnet import GradNet, fit
+from gradnet.utils import plot_graph, laplacian
+from torch.linalg import eigvalsh
+
+
+# define a loss function you want to minimize
+def negative_algebraic_connectivity(gn):
+    # get the adjacency
+    A = gn()
+    L = laplacian(A)
+    eigs = eigvalsh(L)
+    return -eigs[1]
+
+
+gn = GradNet(num_nodes=10, budget=10)
+fit(gn=gn, 
+    loss_fn=negative_algebraic_connectivity, 
+    num_updates=1000, 
+    accelerator="cpu")
+
+plot_graph(gn, plt_show=True)
+```
+Here `num_updates` is the number of optimization steps.
+You can set `accelerator="cuda"` to run the optimization on the GPU.
+
+
+<p align="left">
+  <img src="docs/source/_static/all-to-all_net.png"
+       alt="Completely connected graph with uniform edgeweights"
+       width="300" />
+</p>
 
 The examples folder contains several examples of how to use GradNet.
 

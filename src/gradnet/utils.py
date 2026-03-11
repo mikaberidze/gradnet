@@ -21,6 +21,12 @@ def random_seed(seed):
         torch.cuda.manual_seed(seed)
 
 
+def laplacian(A):
+    """Compute the graph Laplacian from the adjacency matrix."""
+    D = torch.diag(A.sum(dim=1))
+    return D - A
+
+
 def prune_edges(
     del_adj: torch.Tensor,
     *,
@@ -167,6 +173,7 @@ def plot_adjacency_heatmap(
     add_colorbar: bool = True,
     cbar_kwargs: Optional[dict] = None,
     imshow_kwargs: Optional[dict] = None,
+    plt_show: bool = False,
 ):
     """Plot an adjacency matrix as a heatmap.
 
@@ -200,6 +207,8 @@ def plot_adjacency_heatmap(
         cb_kwargs.setdefault("label", cbar_label)
         fig.colorbar(im, ax=ax, **cb_kwargs)
     ax.set(title=title, xlabel=xlabel, ylabel=ylabel)
+    if plt_show:
+        plt.show()
     return im
 
 
@@ -215,6 +224,7 @@ def plot_graph(
     draw_kwargs: Optional[dict] = None,
     add_colorbar: bool = False,
     colorbar_label: str = None,
+    plt_show: bool = False,
 ):  # TODO! layout="networkx" option is weird for positions
     """Draw the NetworkX representation of ``gn``.
 
@@ -266,8 +276,9 @@ def plot_graph(
             sm = ScalarMappable(cmap=cmap)
             sm.set_array(np.asarray(node_color))
             ax.figure.colorbar(sm, ax=ax, label=colorbar_label)
-
-    return net
+    if plt_show:
+        plt.show()
+    return
 
 
 def load_scalars(log_dir: Union[str, Path]):
