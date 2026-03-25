@@ -17,9 +17,9 @@ docstrings render well when building documentation with Sphinx.
 
 from __future__ import annotations
 from typing import Callable, Any, Optional, Union, Mapping, Sequence
+import numpy as np
 import torch
 import torch.nn as nn
-from .utils import _to_like_struct
 from torchdiffeq import odeint, odeint_adjoint, odeint_event
 
 
@@ -47,6 +47,37 @@ class _VectorField(nn.Module):
     def forward(self, t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """Evaluate the user vector field as ``f(t, x, A, **kwargs)``."""
         return self._f(t, x, self.A, **self._kwargs)
+
+
+def _real_dtype(dtype: torch.dtype) -> torch.dtype:
+    """Return the corresponding real dtype for ``dtype``."""
+    return torch.zeros((), dtype=dtype).real.dtype
+
+
+def _promoted_state_dtype(
+    A: torch.Tensor, x0: Union[torch.Tensor, float, int]
+) -> torch.dtype:
+    """Choose a solve dtype that preserves complex-valued states."""
+    x0_dtype = x0.dtype if isinstance(x0, torch.Tensor) else torch.as_tensor(x0).dtype
+    return torch.promote_types(A.dtype, x0_dtype)
+
+
+def _to_device_struct(obj: Any, device: torch.device) -> Any:
+    """Recursively move tensors/NumPy arrays in ``obj`` to ``device``."""
+    if isinstance(obj, torch.Tensor):
+        return obj.to(device=device)
+    if isinstance(obj, np.ndarray):  # also catches np.matrix
+        return torch.as_tensor(obj).to(device=device)
+    if isinstance(obj, np.generic):  # NumPy scalar (e.g., np.float32(3.0))
+        return torch.as_tensor(obj, device=device)
+    if isinstance(obj, Mapping):
+        return obj.__class__({k: _to_device_struct(v, device) for k, v in obj.items()})
+    if isinstance(obj, tuple) and hasattr(obj, "_fields"):  # namedtuple
+        return obj.__class__(*[_to_device_struct(v, device) for v in obj])
+    if isinstance(obj, (list, tuple)):
+        typ = obj.__class__
+        return typ(_to_device_struct(v, device) for v in obj)
+    return obj  # nn.Module or anything else stays as-is
 
 
 def integrate_ode(
@@ -85,8 +116,8 @@ def integrate_ode(
       tt (torch.Tensor): 1D time grid (monotone; may decrease for reverse-time
         event searches).
       f_kwargs (Mapping[str, Any] | None, optional): Keyword arguments passed to
-        ``f`` (and ``event_fn`` if provided). Tensors/NumPy arrays are moved/cast
-        to match ``A``.
+        ``f`` (and ``event_fn`` if provided). Tensors/NumPy arrays are moved to
+        the adjacency device without forcing them to ``A.dtype``.
       method (str, optional): Integrator, e.g., adaptive stepsize ``"dopri5"`` (default),
         or fixed-step ``"rk4"``, see more options in `torchdiffeq documentation
         <https://github.com/rtqichen/torchdiffeq>`_).
@@ -152,15 +183,17 @@ def integrate_ode(
     if hasattr(A, "layout") and A.layout != torch.strided:
         A = A.to_dense()
 
-    # Align inputs to A's device/dtype.
-    x0 = _to_like_struct(x0, A)
-    tt = _to_like_struct(tt, A)
+    # Align the solve state to a promoted dtype so complex inputs stay complex.
+    state_dtype = _promoted_state_dtype(A, x0)
+    time_dtype = _real_dtype(state_dtype)
+    x0 = torch.as_tensor(x0, device=A.device, dtype=state_dtype)
+    tt = torch.as_tensor(tt, device=A.device, dtype=time_dtype)
 
     # params must be kwargs if provided
     if f_kwargs is None:
         f_kwargs = {}
     elif isinstance(f_kwargs, Mapping):
-        f_kwargs = _to_like_struct(f_kwargs, A)
+        f_kwargs = _to_device_struct(f_kwargs, A.device)
     else:
         raise TypeError("`f_kwargs` must be a Mapping of keyword arguments (or None).")
 
@@ -174,7 +207,7 @@ def integrate_ode(
         kwargs=f_kwargs,
         gn_module=gn_module,
         params_modules=params_modules if params_modules else None,
-    ).to(A.device, A.dtype)
+    ).to(A.device)
 
     # Select solver interface and shared ODE kwargs.
     ode_interface = odeint_adjoint if adjoint else odeint
