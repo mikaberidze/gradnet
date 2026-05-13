@@ -18,7 +18,6 @@ os.environ.setdefault("LIGHTING_USE_RICH", "0")
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase
-from pytorch_lightning.callbacks import Callback
 
 try:  # prefer notebook progress bar when the stack supports it
     from tqdm import TqdmWarning  # type: ignore[attr-defined]
@@ -207,7 +206,7 @@ class GradNetLightning(pl.LightningModule):
             checkpoint["gradnet_config"] = self._gradnet_config
 
 
-class _EpochTQDM(Callback):
+class _EpochTQDM(pl.Callback):
     """Minimal epoch-wise TQDM progress bar callback.
 
     Shows total updates, and displays numeric metrics

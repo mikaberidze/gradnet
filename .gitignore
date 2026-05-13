@@ -82,3 +82,5 @@ RELEASING.md
 
 # macOS Finder metadata anywhere
 **/.DS_Store
+
+docs/internal/
