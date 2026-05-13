@@ -84,3 +84,6 @@ RELEASING.md
 **/.DS_Store
 
 docs/internal/
+
+# Git worktrees
+.worktrees/
