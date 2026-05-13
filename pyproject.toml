@@ -28,7 +28,6 @@ classifiers = [
 dependencies = [
   "torch>=2.0",
   "numpy>=1.21",
-  "pytorch-lightning>=1.9,<3",
   "tensorboard",
   "matplotlib",
   "tqdm>=4.64",
@@ -36,6 +35,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pl = ["pytorch-lightning>=1.9,<3"]
 examples = [
   "networkx>=2.6",
   "imageio-ffmpeg>=0.4",
