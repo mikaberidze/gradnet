@@ -295,17 +295,6 @@ def _resolve_logger(
 ) -> Optional[Logger]:
     if not logger:  # None or False
         return None
-    if hasattr(logger, "log_metrics") and hasattr(logger, "finalize"):
-        return logger  # user-provided Logger Protocol instance
-    try:
-        from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase  # type: ignore
-        if isinstance(logger, LightningLoggerBase):
-            raise TypeError(
-                "PyTorch Lightning loggers require gradnet[pl]; "
-                "use gradnet.pl_fit(...) for the PyTorch Lightning trainer."
-            )
-    except ImportError:
-        pass
     if logger is True:
         path = log_dir or "lightning_logs/gradnet"
         try:
@@ -317,6 +306,18 @@ def _resolve_logger(
                     RuntimeWarning,
                 )
             return CSVLogger(path)
+    # Reject PL logger instances before duck-typing (they also expose log_metrics/finalize)
+    try:
+        from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase  # type: ignore
+        if isinstance(logger, LightningLoggerBase):
+            raise TypeError(
+                "PyTorch Lightning loggers require gradnet[pl]; "
+                "use gradnet.pl_fit(...) for the PyTorch Lightning trainer."
+            )
+    except ImportError:
+        pass
+    if hasattr(logger, "log_metrics") and hasattr(logger, "finalize"):
+        return logger
     raise TypeError(f"Unsupported `logger` value: {logger!r}")
 
 

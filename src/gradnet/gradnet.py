@@ -444,33 +444,27 @@ class GradNet(nn.Module):
         *,
         map_location: Optional[Union[str, torch.device]] = "cpu",
     ) -> "GradNet":
-        """Load a ``GradNet`` from a PyTorch Lightning checkpoint. Checkpoints are stored by fit."""
+        """Load a ``GradNet`` from a checkpoint saved by either trainer.
+
+        Handles both the lightweight :func:`gradnet.fit` format
+        (``{"state_dict": ..., "gradnet_config": ...}``) and the PL
+        :func:`gradnet.pl_fit` format (state_dict keys prefixed with ``gn.``).
+        """
         with _suppress_torch_weights_warning():
             ckpt = torch.load(checkpoint_path, map_location=map_location)
         config = ckpt.get("gradnet_config")
         if config is None:
-            raise ValueError(
-                "Checkpoint missing 'gradnet_config'; ensure training used updated GradNetLightning."
-            )
+            raise ValueError("Checkpoint missing 'gradnet_config'.")
+        state_dict = ckpt.get("state_dict")
+        if state_dict is None:
+            raise ValueError("Checkpoint missing 'state_dict'.")
+        # PL wraps params under 'gn.<...>'; strip the prefix when present.
+        if any(k.startswith("gn.") for k in state_dict):
+            state_dict = {k[len("gn."):]: v for k, v in state_dict.items() if k.startswith("gn.")}
 
         model = cls.from_config(config)
-
-        from .pl_trainer import GradNetLightning  # lazy import to avoid cycles
-
-        def _noop_loss_fn(_gn: "GradNet", **_):
-            return torch.zeros((), device=model.device, dtype=model.dtype)
-
-        with _suppress_torch_weights_warning():
-            module = GradNetLightning.load_from_checkpoint(
-                checkpoint_path,
-                map_location=map_location,
-                gn=model,
-                loss_fn=_noop_loss_fn,
-                loss_kwargs={},
-                optim_cls=torch.optim.SGD,
-                optim_kwargs={"lr": 0.0},
-            )
-        return module.gn
+        model.load_state_dict(state_dict)
+        return model
 
     # --------------------- Internal helpers -----------------------------------
     @staticmethod
