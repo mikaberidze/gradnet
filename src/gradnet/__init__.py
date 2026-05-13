@@ -11,7 +11,7 @@ __all__ = [
 _LAZY_ATTRS = {
     "GradNet": (".gradnet", "GradNet"),
     "integrate_ode": (".ode", "integrate_ode"),
-    "fit": (".trainer", "fit"),
+    "fit": (".pl_trainer", "fit"),
 }
 
 def __getattr__(name):
@@ -32,4 +32,4 @@ if TYPE_CHECKING:
     # For type checkers, keep explicit imports without runtime cost
     from .gradnet import GradNet  # noqa: F401
     from .ode import integrate_ode  # noqa: F401
-    from .trainer import fit  # noqa: F401
+    from .pl_trainer import fit  # noqa: F401

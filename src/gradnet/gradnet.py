@@ -455,7 +455,7 @@ class GradNet(nn.Module):
 
         model = cls.from_config(config)
 
-        from .trainer import GradNetLightning  # lazy import to avoid cycles
+        from .pl_trainer import GradNetLightning  # lazy import to avoid cycles
 
         def _noop_loss_fn(_gn: "GradNet", **_):
             return torch.zeros((), device=model.device, dtype=model.dtype)
