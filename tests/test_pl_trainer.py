@@ -3,8 +3,10 @@ import types
 import pathlib
 
 import pytest
+
+pytest.importorskip("pytorch_lightning")
+
 import sys
-import os
 
 # Ensure `src/` is on sys.path for local imports when using a src layout
 THIS_DIR = os.path.dirname(__file__)
@@ -17,7 +19,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from gradnet.trainer import (
+from gradnet.pl_trainer import (
     _OneItem,
     GradNetLightning,
     _EpochTQDM,

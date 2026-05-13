@@ -1,8 +1,15 @@
-"""Utilities to train a :class:`gradnet.GradNet` with PyTorch Lightning.
+"""Full-featured PyTorch Lightning trainer for :class:`gradnet.GradNet`.
 
-This module provides a thin Lightning wrapper and a convenience function
-(:func:`fit`) to optimize a ``GradNet`` for a fixed number of
-updates.
+This module provides a Lightning wrapper and a convenience function
+(:func:`fit`) to optimize a ``GradNet`` for a fixed number of updates.
+
+This is the optional, full-featured trainer. To use it, install the
+``pl`` extra::
+
+    pip install gradnet[pl]
+
+and call :func:`gradnet.pl_fit` (or import :func:`gradnet.pl_trainer.fit`
+directly). For the lightweight default, see :mod:`gradnet.trainer`.
 """
 from __future__ import annotations
 from typing import Dict, Optional, Tuple, Union, Mapping, Any, Protocol

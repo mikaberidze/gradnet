@@ -22,7 +22,7 @@ from gradnet.gradnet import (
     GradNet,
 )
 from gradnet.utils import to_networkx
-from gradnet.trainer import fit
+from gradnet.pl_trainer import fit
 
 
 def _p_cost_norm(x, cost, p: int):
