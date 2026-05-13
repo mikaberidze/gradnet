@@ -12,7 +12,7 @@ __all__ = [
 _LAZY_ATTRS = {
     "GradNet": (".gradnet", "GradNet"),
     "integrate_ode": (".ode", "integrate_ode"),
-    "fit": (".pl_trainer", "fit"),         # will move to .trainer once the custom trainer lands
+    "fit": (".trainer", "fit"),
     "pl_fit": (".pl_trainer", "fit"),
 }
 
@@ -40,5 +40,5 @@ def __dir__():
 if TYPE_CHECKING:
     from .gradnet import GradNet  # noqa: F401
     from .ode import integrate_ode  # noqa: F401
-    from .pl_trainer import fit  # noqa: F401
+    from .trainer import fit  # noqa: F401
     from .pl_trainer import fit as pl_fit  # noqa: F401

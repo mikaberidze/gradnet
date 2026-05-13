@@ -12,7 +12,7 @@ and call :func:`gradnet.pl_fit` (or import :func:`gradnet.pl_trainer.fit`
 directly). For the lightweight default, see :mod:`gradnet.trainer`.
 """
 from __future__ import annotations
-from typing import Dict, Optional, Tuple, Union, Mapping, Any, Protocol
+from typing import Optional, Union, Mapping, Any
 import logging
 import os
 import warnings
@@ -51,24 +51,7 @@ with warnings.catch_warnings():
 
 from .utils import _to_like_struct
 from .gradnet import GradNet
-
-
-class LossFn(Protocol):
-    """Protocol for loss functions used with :func:`fit`.
-
-    Implementations must accept a :class:`gradnet.GradNet` and may accept
-    arbitrary keyword arguments. They should return either a scalar loss
-    tensor, or a tuple ``(loss, metrics_dict)`` where ``metrics_dict`` maps
-    metric names to floats/ints/tensors.
-    """
-    def __call__(
-        self,
-        model: GradNet,
-        **loss_kwargs: Any,
-    ) -> Union[
-        torch.Tensor,
-        Tuple[torch.Tensor, Dict[str, Union[float, int, torch.Tensor]]],
-    ]: ...
+from .trainer import LossFn  # single source of truth, shared with the default trainer
 
 
 class _OneItem(Dataset):
