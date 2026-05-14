@@ -47,8 +47,8 @@ htmlcov/
 
 # Logs and run outputs
 *.log
-lightning_logs/
-**/lightning_logs/
+trainer_logs/
+**/trainer_logs/
 *.ckpt
 events.out.tfevents*
 examples/kuramoto_checkpoints/

@@ -11,6 +11,7 @@ This is the optional, full-featured trainer. To use it, install the
 and call :func:`gradnet.pl_fit` (or import :func:`gradnet.pl_trainer.fit`
 directly). For the lightweight default, see :mod:`gradnet.trainer`.
 """
+
 from __future__ import annotations
 from typing import Optional, Union, Mapping, Any
 import logging
@@ -40,7 +41,9 @@ for warning_pattern in (
     r"The 'train_dataloader' does not have many workers.*",
     r"GPU available but not used.*",
 ):
-    warnings.filterwarnings("ignore", message=warning_pattern, category=PossibleUserWarning)
+    warnings.filterwarnings(
+        "ignore", message=warning_pattern, category=PossibleUserWarning
+    )
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", category=TqdmWarning)
@@ -60,8 +63,12 @@ class _OneItem(Dataset):
     Used to drive the Lightning training loop with one update per epoch
     without relying on external data.
     """
-    def __len__(self): return 1
-    def __getitem__(self, idx): return {}
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, idx):
+        return {}
 
 
 class GradNetLightning(pl.LightningModule):
@@ -109,12 +116,13 @@ class GradNetLightning(pl.LightningModule):
         Attempt to wrap the model with :func:`torch.compile` during ``setup``;
         fall back silently when compilation fails.
     """
+
     def __init__(
         self,
         *,
         gn: nn.Module,
         loss_fn: LossFn,
-        loss_kwargs: Mapping[str, Any] | None = None,   # kwargs for the loss function
+        loss_kwargs: Mapping[str, Any] | None = None,  # kwargs for the loss function
         optim_cls: type[torch.optim.Optimizer],
         optim_kwargs: dict,
         sched_cls: Optional[type] = None,
@@ -146,7 +154,9 @@ class GradNetLightning(pl.LightningModule):
             try:
                 self.gn = torch.compile(self.gn)  # type: ignore[attr-defined]
             except Exception as e:
-                pl.utilities.rank_zero.rank_zero_warn(f"torch.compile failed; continuing uncompiled. Error: {e}")
+                pl.utilities.rank_zero.rank_zero_warn(
+                    f"torch.compile failed; continuing uncompiled. Error: {e}"
+                )
 
     def training_step(self, batch, batch_idx):
         """Run one manual-optimization update using ``loss_fn``."""
@@ -158,7 +168,11 @@ class GradNetLightning(pl.LightningModule):
         self.manual_backward(loss)
 
         if self.grad_clip_val > 0:
-            self.clip_gradients(opt, gradient_clip_val=self.grad_clip_val, gradient_clip_algorithm="norm")
+            self.clip_gradients(
+                opt,
+                gradient_clip_val=self.grad_clip_val,
+                gradient_clip_algorithm="norm",
+            )
 
         opt.step()
         opt.zero_grad(set_to_none=True)
@@ -172,10 +186,30 @@ class GradNetLightning(pl.LightningModule):
             if should_renorm:
                 self.gn.renorm_params()
 
-        self.log(self.monitor_key, loss, prog_bar=True, on_epoch=True, on_step=False, sync_dist=True, batch_size=1)
+        self.log(
+            self.monitor_key,
+            loss,
+            prog_bar=True,
+            on_epoch=True,
+            on_step=False,
+            sync_dist=True,
+            batch_size=1,
+        )
         for k, v in metrics.items():
-            v = v if isinstance(v, torch.Tensor) else torch.tensor(float(v), device=loss.device)
-            self.log(k, v, prog_bar=False, on_epoch=True, on_step=False, sync_dist=True, batch_size=1)
+            v = (
+                v
+                if isinstance(v, torch.Tensor)
+                else torch.tensor(float(v), device=loss.device)
+            )
+            self.log(
+                k,
+                v,
+                prog_bar=False,
+                on_epoch=True,
+                on_step=False,
+                sync_dist=True,
+                batch_size=1,
+            )
 
         return loss.detach()
 
@@ -187,7 +221,12 @@ class GradNetLightning(pl.LightningModule):
         sched = self.sched_cls(opt, **self.sched_kwargs)
         return {
             "optimizer": opt,
-            "lr_scheduler": {"scheduler": sched, "interval": "epoch", "frequency": 1, "name": "lr"},
+            "lr_scheduler": {
+                "scheduler": sched,
+                "interval": "epoch",
+                "frequency": 1,
+                "name": "lr",
+            },
         }
 
     def on_save_checkpoint(self, checkpoint: dict[str, Any]) -> None:
@@ -202,13 +241,20 @@ class _EpochTQDM(pl.Callback):
     Shows total updates, and displays numeric metrics
     collected in ``trainer.callback_metrics``.
     """
+
     def on_fit_start(self, trainer, *_):
         self.bar = tqdm(total=trainer.max_epochs, desc="Updates", dynamic_ncols=True)
+
     def on_train_epoch_end(self, trainer, *_):
-        self.bar.set_postfix({k: v.item() if hasattr(v, "item") else v
-                              for k, v in trainer.callback_metrics.items()
-                              if isinstance(v, (int, float)) or hasattr(v, "item")})
+        self.bar.set_postfix(
+            {
+                k: v.item() if hasattr(v, "item") else v
+                for k, v in trainer.callback_metrics.items()
+                if isinstance(v, (int, float)) or hasattr(v, "item")
+            }
+        )
         self.bar.update(1)
+
     def on_fit_end(self, *_):
         self.bar.close()
 
@@ -240,12 +286,15 @@ def _resolve_logger(
 
     # determine save_dir and name based on provided `log_dir` or defaults
     if log_dir is None:
-        save_dir, name = "lightning_logs", "gradnet"
+        save_dir, name = "trainer_logs", "gradnet"
     else:
-        # treat `log_dir` as the final directory path (e.g., "./lightning_logs/gradnet")
+        # treat `log_dir` as the final directory path (e.g., "./trainer_logs/gradnet")
         # and split into (parent, basename) for Lightning loggers
         norm = os.path.normpath(log_dir)
-        save_dir, name = os.path.dirname(norm) or ".", os.path.basename(norm) or "gradnet"
+        save_dir, name = (
+            os.path.dirname(norm) or ".",
+            os.path.basename(norm) or "gradnet",
+        )
 
     try:
         from pytorch_lightning.loggers import TensorBoardLogger
@@ -267,7 +316,7 @@ def fit(
     *,
     gn: GradNet,
     loss_fn: LossFn,
-    loss_kwargs: Mapping[str, Any] | None = None,   # kwargs for the loss function
+    loss_kwargs: Mapping[str, Any] | None = None,  # kwargs for the loss function
     num_updates: int,
     optim_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
     optim_kwargs: Optional[dict] = None,
@@ -340,8 +389,8 @@ def fit(
     log_dir : str | None, optional
         When ``logger`` is ``True`` (request default logging), use this directory
         for logs. Treats the value as the final directory path (e.g.,
-        ``"./lightning_logs/gradnet"``). When ``None``, defaults to
-        ``"./lightning_logs/gradnet"``. Ignored when a custom ``logger`` instance
+        ``"./trainer_logs/gradnet"``). When ``None``, defaults to
+        ``"./trainer_logs/gradnet"``. Ignored when a custom ``logger`` instance
         is provided or logging is disabled.
     enable_checkpointing : bool, optional
         Enable the default ``ModelCheckpoint`` callback. When ``True`` it
@@ -410,8 +459,12 @@ def fit(
 
     # params must be kwargs if provided
     if loss_kwargs is not None and not isinstance(loss_kwargs, Mapping):
-        raise TypeError("`loss_kwargs` must be a Mapping of keyword arguments (or None).")
-    loss_kwargs = _to_like_struct(loss_kwargs, gn) if isinstance(loss_kwargs, Mapping) else {}
+        raise TypeError(
+            "`loss_kwargs` must be a Mapping of keyword arguments (or None)."
+        )
+    loss_kwargs = (
+        _to_like_struct(loss_kwargs, gn) if isinstance(loss_kwargs, Mapping) else {}
+    )
 
     module = GradNetLightning(
         gn=gn,
@@ -432,7 +485,9 @@ def fit(
     if enable_checkpointing:
         if checkpoint_every_n is not None:
             if not isinstance(checkpoint_every_n, int) or checkpoint_every_n < 1:
-                raise ValueError("`checkpoint_every_n` must be an integer >= 1 or None.")
+                raise ValueError(
+                    "`checkpoint_every_n` must be an integer >= 1 or None."
+                )
         ckpt = _make_checkpoint(
             dirpath=checkpoint_dir,
             filename="gn-{epoch:05d}",
@@ -492,4 +547,6 @@ def fit(
         for name, lvl in prev_levels.items():
             logging.getLogger(name).setLevel(lvl)
 
-    return trainer, (ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None)
+    return trainer, (
+        ckpt.best_model_path if (enable_checkpointing and ckpt is not None) else None
+    )

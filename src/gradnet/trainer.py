@@ -13,6 +13,7 @@ available via ``pip install gradnet[pl]``):
   before calling ``fit``; mixed precision lives in ``pl_fit``
 * No multi-GPU / DDP / TPU / arbitrary PL callbacks or loggers
 """
+
 from __future__ import annotations
 
 import csv
@@ -37,11 +38,12 @@ except Exception:
 from .gradnet import GradNet
 from .utils import _to_like_struct
 
-
 # --------------------------------------------------------------------------- Protocols
+
 
 class LossFn(Protocol):
     """Loss callable: ``loss_fn(gn, **loss_kwargs) -> Tensor | (Tensor, metrics)``."""
+
     def __call__(
         self,
         model: GradNet,
@@ -54,24 +56,31 @@ class LossFn(Protocol):
 
 class Callback(Protocol):
     """Three-hook training callback. Stateless callbacks can omit hooks."""
+
     def on_fit_start(self, trainer: "GradNetTrainer") -> None: ...
     def on_step_end(
-        self, trainer: "GradNetTrainer", step: int,
-        loss: float, metrics: Dict[str, float],
+        self,
+        trainer: "GradNetTrainer",
+        step: int,
+        loss: float,
+        metrics: Dict[str, float],
     ) -> None: ...
     def on_fit_end(self, trainer: "GradNetTrainer") -> None: ...
 
 
 class Logger(Protocol):
     """Metric sink. Implement to plug in custom logging backends."""
+
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None: ...
     def finalize(self) -> None: ...
 
 
 # --------------------------------------------------------------------------- Trainer state
 
+
 class GradNetTrainer:
     """Container exposed to callbacks while :func:`fit` is running."""
+
     def __init__(self, max_epochs: int):
         self.max_epochs = max_epochs
         self.current_epoch: int = 0
@@ -80,8 +89,10 @@ class GradNetTrainer:
 
 # --------------------------------------------------------------------------- Built-in callback
 
+
 class _EpochTQDM:
     """tqdm progress bar driven by the Callback protocol."""
+
     def on_fit_start(self, trainer: GradNetTrainer) -> None:
         self._bar = tqdm(total=trainer.max_epochs, desc="Updates", dynamic_ncols=True)
 
@@ -95,10 +106,13 @@ class _EpochTQDM:
 
 # --------------------------------------------------------------------------- Loggers
 
+
 class TensorBoardLogger:
     """Writes scalar metrics via :class:`torch.utils.tensorboard.SummaryWriter`."""
+
     def __init__(self, log_dir: str):
         from torch.utils.tensorboard import SummaryWriter
+
         os.makedirs(log_dir, exist_ok=True)
         self._writer = SummaryWriter(log_dir)
 
@@ -116,6 +130,7 @@ class CSVLogger:
     Format matches :func:`gradnet.utils.load_scalars` (columns: ``epoch``,
     then one column per metric).
     """
+
     def __init__(self, log_dir: str):
         os.makedirs(log_dir, exist_ok=True)
         self._path = Path(log_dir) / "metrics.csv"
@@ -136,12 +151,14 @@ class CSVLogger:
 
 # --------------------------------------------------------------------------- Checkpointing
 
+
 class CheckpointManager:
     """Saves the best-loss checkpoint, optional periodic snapshots, and an optional ``last.ckpt``.
 
     Filename layout matches the PL trainer so existing utilities
     (``utils.animate_adjacency``, ``GradNet.from_checkpoint``) keep working.
     """
+
     def __init__(
         self,
         dirpath: Optional[str],
@@ -179,6 +196,7 @@ class CheckpointManager:
 
 
 # --------------------------------------------------------------------------- Helpers
+
 
 def _resolve_device(device: Union[str, torch.device]) -> torch.device:
     if isinstance(device, torch.device):
@@ -296,7 +314,7 @@ def _resolve_logger(
     if not logger:  # None or False
         return None
     if logger is True:
-        path = log_dir or "lightning_logs/gradnet"
+        path = log_dir or "trainer_logs/gradnet"
         try:
             return TensorBoardLogger(path)
         except Exception as exc:
@@ -309,6 +327,7 @@ def _resolve_logger(
     # Reject PL logger instances before duck-typing (they also expose log_metrics/finalize)
     try:
         from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase  # type: ignore
+
         if isinstance(logger, LightningLoggerBase):
             raise TypeError(
                 "PyTorch Lightning loggers require gradnet[pl]; "
@@ -322,6 +341,7 @@ def _resolve_logger(
 
 
 # --------------------------------------------------------------------------- fit
+
 
 def fit(
     *,
@@ -369,14 +389,18 @@ def fit(
         torch.use_deterministic_algorithms(bool(deterministic))
 
     if loss_kwargs is not None and not isinstance(loss_kwargs, Mapping):
-        raise TypeError("`loss_kwargs` must be a Mapping of keyword arguments (or None).")
+        raise TypeError(
+            "`loss_kwargs` must be a Mapping of keyword arguments (or None)."
+        )
 
     callbacks = _validate_callbacks(callbacks)
     tr_logger = _resolve_logger(logger, log_dir, verbose)
 
     target_device = _resolve_device(device)
     gn.to(target_device)
-    cfg = gn.export_config() if isinstance(gn, GradNet) else None  # capture before compile
+    cfg = (
+        gn.export_config() if isinstance(gn, GradNet) else None
+    )  # capture before compile
     if compile_model:
         try:
             gn = torch.compile(gn)
@@ -390,8 +414,11 @@ def fit(
     sched = sched_cls(opt, **(sched_kwargs or {})) if sched_cls else None
 
     ckpt = (
-        CheckpointManager(checkpoint_dir, save_last=save_last, every_n=checkpoint_every_n)
-        if enable_checkpointing else None
+        CheckpointManager(
+            checkpoint_dir, save_last=save_last, every_n=checkpoint_every_n
+        )
+        if enable_checkpointing
+        else None
     )
 
     trainer = GradNetTrainer(max_epochs=int(num_updates))
@@ -415,7 +442,10 @@ def fit(
         if (loss.dtype != ref_dtype) or (loss.device != ref_device):
             if not mismatch_warned:
                 _warn_loss_mismatch(
-                    loss.dtype, loss.device, ref_dtype, ref_device,
+                    loss.dtype,
+                    loss.device,
+                    ref_dtype,
+                    ref_device,
                     stage="loss return",
                 )
                 mismatch_warned = True
@@ -426,8 +456,12 @@ def fit(
         except RuntimeError as e:
             if not mismatch_warned and _looks_like_dtype_or_device_error(e):
                 _warn_loss_mismatch(
-                    None, None, ref_dtype, ref_device,
-                    stage="backward", original_error=str(e),
+                    None,
+                    None,
+                    ref_dtype,
+                    ref_device,
+                    stage="backward",
+                    original_error=str(e),
                 )
                 mismatch_warned = True
             raise
