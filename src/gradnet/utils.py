@@ -285,9 +285,9 @@ def load_scalars(log_dir: Union[str, Path]):
     """Return shared steps and a dict of scalar series from Lightning logs.
 
     The ``log_dir`` can be either a specific version directory
-    (e.g., ``lightning_logs/gradnet/version_3``) or the parent folder that
+    (e.g., ``trainer_logs/gradnet/version_3``) or the parent folder that
     contains multiple ``version_*`` subdirectories (e.g.,
-    ``lightning_logs/gradnet``). This function prefers CSV logs when present
+    ``trainer_logs/gradnet``). This function prefers CSV logs when present
     and falls back to TensorBoard event files if available.
 
     Returns ``(steps, series)`` where ``steps`` is a single list of integers
@@ -296,7 +296,7 @@ def load_scalars(log_dir: Union[str, Path]):
     filled with ``nan``.
 
     Usage:
-        >>> steps, series = load_scalars('lightning_logs/gradnet')
+        >>> steps, series = load_scalars('trainer_logs/gradnet')
         >>> loss = series['loss']
 
     :param log_dir: Path to a logger directory or its parent.
