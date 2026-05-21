@@ -155,7 +155,9 @@ autodoc_typehints = 'none'           # remove type hints from signatures
 autodoc_default_options = {
     'exclude-members': '__init__',
 }
-autodoc_mock_imports = []
+autodoc_mock_imports = ["torchdiffeq"]
+
+suppress_warnings = ["myst.header", "misc.highlighting_failure"]
 
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
