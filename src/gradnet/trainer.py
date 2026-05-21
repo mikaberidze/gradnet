@@ -1,17 +1,9 @@
-"""Lightweight default trainer for :class:`gradnet.GradNet`.
+"""Default trainer for :class:`gradnet.GradNet`.
 
 A small, self-contained training loop with optional TensorBoard/CSV
 logging, best-loss + periodic checkpointing, a tqdm progress bar, and a
 loss dtype/device safety net that auto-casts mismatched losses and
 warns once per ``fit()`` call.
-
-Differences from :func:`gradnet.pl_fit` (the PyTorch Lightning trainer
-available via ``pip install gradnet[pl]``):
-
-* ``device`` replaces ``accelerator``
-* No ``precision`` parameter — control dtype with ``gn.to(dtype=...)``
-  before calling ``fit``; mixed precision lives in ``pl_fit``
-* No multi-GPU / DDP / TPU / arbitrary PL callbacks or loggers
 """
 
 from __future__ import annotations
@@ -153,11 +145,7 @@ class CSVLogger:
 
 
 class CheckpointManager:
-    """Saves the best-loss checkpoint, optional periodic snapshots, and an optional ``last.ckpt``.
-
-    Filename layout matches the PL trainer so existing utilities
-    (``utils.animate_adjacency``, ``GradNet.from_checkpoint``) keep working.
-    """
+    """Saves the best-loss checkpoint, optional periodic snapshots, and an optional ``last.ckpt``."""
 
     def __init__(
         self,
@@ -289,23 +277,6 @@ def _warn_loss_mismatch(
     warnings.warn(msg, category=UserWarning, stacklevel=3)
 
 
-def _validate_callbacks(callbacks) -> List[Callback]:
-    if callbacks is None:
-        return []
-    cbs = list(callbacks)
-    try:
-        import pytorch_lightning as pl  # type: ignore
-    except ImportError:
-        return cbs
-    for cb in cbs:
-        if isinstance(cb, pl.Callback):
-            raise TypeError(
-                "pl.Callback instances require gradnet[pl]; "
-                "use gradnet.pl_fit(...) for the PyTorch Lightning trainer."
-            )
-    return cbs
-
-
 def _resolve_logger(
     logger: Union[Logger, bool, None],
     log_dir: Optional[str],
@@ -324,17 +295,6 @@ def _resolve_logger(
                     RuntimeWarning,
                 )
             return CSVLogger(path)
-    # Reject PL logger instances before duck-typing (they also expose log_metrics/finalize)
-    try:
-        from pytorch_lightning.loggers.logger import Logger as LightningLoggerBase  # type: ignore
-
-        if isinstance(logger, LightningLoggerBase):
-            raise TypeError(
-                "PyTorch Lightning loggers require gradnet[pl]; "
-                "use gradnet.pl_fit(...) for the PyTorch Lightning trainer."
-            )
-    except ImportError:
-        pass
     if hasattr(logger, "log_metrics") and hasattr(logger, "finalize"):
         return logger
     raise TypeError(f"Unsupported `logger` value: {logger!r}")
@@ -379,9 +339,6 @@ def fit(
     Returns ``(trainer, best_ckpt_path)``. ``trainer.callback_metrics`` holds
     the last step's metrics; ``best_ckpt_path`` is ``None`` when
     ``enable_checkpointing=False``.
-
-    See :func:`gradnet.pl_fit` for mixed precision, multi-GPU, and the full
-    PyTorch Lightning feature set.
     """
     if seed is not None:
         _seed_everything(seed)
@@ -393,7 +350,7 @@ def fit(
             "`loss_kwargs` must be a Mapping of keyword arguments (or None)."
         )
 
-    callbacks = _validate_callbacks(callbacks)
+    callbacks = list(callbacks) if callbacks else []
     tr_logger = _resolve_logger(logger, log_dir, verbose)
 
     target_device = _resolve_device(device)

@@ -20,7 +20,6 @@ from gradnet.trainer import (
     _looks_like_dtype_or_device_error,
     _parse_max_time,
     _resolve_device,
-    _validate_callbacks,
 )
 
 
@@ -199,37 +198,13 @@ def test_resolve_device():
     assert _resolve_device(torch.device("cpu")) == torch.device("cpu")
 
 
-def test_resolve_device_rejects_pl_gpu_alias():
-    # "gpu" is a PL-ism, not a torch device name → torch.device("gpu") raises.
+def test_resolve_device_rejects_invalid_alias():
+    # "gpu" is not a torch device name → torch.device("gpu") raises.
     with pytest.raises((RuntimeError, ValueError)):
         _resolve_device("gpu")
 
 
-# --------------------------------------------------------------------- 11. PL-typed input rejection
-
-def test_pl_callback_instance_rejected():
-    pl = pytest.importorskip("pytorch_lightning")
-
-    class MyPLCallback(pl.Callback):
-        pass
-
-    with pytest.raises(TypeError, match=r"gradnet\[pl\]"):
-        _validate_callbacks([MyPLCallback()])
-
-
-def test_pl_logger_instance_rejected(gn, tmp_path):
-    pytest.importorskip("pytorch_lightning")
-    from pytorch_lightning.loggers import CSVLogger as PLCSVLogger
-
-    with pytest.raises(TypeError, match=r"gradnet\[pl\]"):
-        fit(
-            gn=gn, loss_fn=neg_sum_loss, num_updates=1,
-            logger=PLCSVLogger(save_dir=str(tmp_path)),
-            verbose=False,
-        )
-
-
-# --------------------------------------------------------------------- 12. callback lifecycle
+# --------------------------------------------------------------------- 11. callback lifecycle
 
 def test_callback_lifecycle_order_and_count(gn):
     events = []

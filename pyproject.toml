@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gradnet"
 version = "0.4.1"
-description = "Trainable graph adjacency parameterizations with ODE integration and Lightning training helpers."
+description = "Trainable graph adjacency parameterizations with ODE integration and training helpers."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "BSD-3-Clause"
@@ -14,7 +14,7 @@ authors = [
   { name = "Beso Mikaberidze" },
   { name = "Dane Taylor" },
 ]
-keywords = ["graphs", "networks", "dynamical systems", "pytorch", "optimization", "ode", "lightning"]
+keywords = ["graphs", "networks", "dynamical systems", "pytorch", "optimization", "ode"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
@@ -35,7 +35,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-pl = ["pytorch-lightning>=1.9,<3"]
 examples = [
   "networkx>=2.6",
   "imageio-ffmpeg>=0.4",

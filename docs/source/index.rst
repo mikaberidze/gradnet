@@ -43,12 +43,9 @@ Quick links
 -----------
 
 - :doc:`GradNet </api/gradnet>` – differentiable adjacency matrix model.
-- :doc:`fit </api/fit>` – lightweight default trainer for a GradNet + loss
+- :doc:`fit </api/fit>` – built-in trainer for a GradNet + loss
   function (a self-contained training loop with logging, checkpointing, and a
   loss dtype/device safety net).
-- :doc:`pl_fit </api/pl_fit>` – optional PyTorch Lightning trainer, available
-  via ``pip install gradnet[pl]``, for mixed precision and the full PL feature
-  set.
 - :doc:`integrate_ode </api/integrate_ode>` – integrate GradNet-defined ODEs
   into control or simulation workflows.
 
@@ -64,10 +61,8 @@ Project links
 
    GradNet (class) <api/gradnet>
    fit (function) <api/fit>
-   pl_fit (function) <api/pl_fit>
    integrate_ode (function) <api/integrate_ode>
    trainer (module) <api/trainer>
-   pl_trainer (module) <api/pl_trainer>
    utils (module) <api/utils>
 
 .. _tutorials-nav:

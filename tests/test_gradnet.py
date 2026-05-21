@@ -22,7 +22,7 @@ from gradnet.gradnet import (
     GradNet,
 )
 from gradnet.utils import to_networkx
-from gradnet.pl_trainer import fit
+from gradnet.trainer import fit
 
 
 def _p_cost_norm(x, cost, p: int):
@@ -718,8 +718,6 @@ def test_gradnet_export_and_from_config_roundtrip():
 
 
 def test_gradnet_from_checkpoint_roundtrip(tmp_path):
-    pytest.importorskip("pytorch_lightning")
-
     mask = torch.tensor([[0.0, 1.0], [1.0, 0.0]], dtype=torch.float32)
     cost = torch.ones((2, 2), dtype=torch.float32)
 
@@ -756,7 +754,8 @@ def test_gradnet_from_checkpoint_roundtrip(tmp_path):
         enable_checkpointing=True,
         checkpoint_dir=str(ckpt_dir),
         logger=False,
-        accelerator="cpu",
+        device="cpu",
+        verbose=False,
     )
 
     assert isinstance(best_ckpt, str) and os.path.exists(best_ckpt)
