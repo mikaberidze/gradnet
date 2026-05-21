@@ -108,6 +108,9 @@ def _ensure_lightweight_mocks():
         cbmod = _mod('pytorch_lightning.callbacks', pkg=True)
         cbmod.Callback = _cls('Callback')  # type: ignore[attr-defined]
         cbmod.ModelCheckpoint = _cls('ModelCheckpoint')  # type: ignore[attr-defined]
+        # Real PL re-exports Callback at the top level; mirror that so module-level
+        # `class X(pl.Callback)` in pl_trainer.py can be imported during docs build.
+        pl.Callback = cbmod.Callback  # type: ignore[attr-defined]
         # loggers
         lg = _mod('pytorch_lightning.loggers', pkg=True)
         lgl = _mod('pytorch_lightning.loggers.logger')
