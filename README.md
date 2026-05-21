@@ -25,7 +25,7 @@ It encodes the network structure as a differentiable object with optional budget
 - Learn dense or sparse adjacency updates with norm, sign, and symmetry constraints.
 - Projected parameterizations that stay differentiable and GPU friendly.
 - Torchdiffeq-backed integration utilities for graph-driven dynamical systems.
-- Lightweight trainer (`gradnet.fit`) that wraps loss functions in just a few lines, plus an optional PyTorch Lightning trainer (`gradnet.pl_fit` via `pip install gradnet[pl]`) for the full PL feature set.
+- Built-in trainer (`gradnet.fit`) that wraps loss functions in just a few lines, with TensorBoard/CSV logging, checkpointing, and a tqdm progress bar.
 
 ## Installation
 
@@ -44,7 +44,6 @@ pip install -e .
 GradNet targets Python 3.10+ and requires pip 21.3+ (run `pip install --upgrade pip` if needed). It depends on PyTorch, torchdiffeq, NumPy, TensorBoard, matplotlib, and tqdm (installed automatically by the command above). Optional extras:
 
 - `pip install 'gradnet[examples]'` — adds the dependencies used by the Jupyter examples.
-- `pip install 'gradnet[pl]'` — adds PyTorch Lightning, enabling `gradnet.pl_fit` for the full PL feature set (mixed precision, multi-GPU, etc.).
 
 ## Documentation
 
@@ -81,8 +80,6 @@ plot_graph(gn, plt_show=True)
 Here `num_updates` is the number of optimization steps.
 You can set `device="cuda"` to run the optimization on the GPU.
 
-If you need PyTorch Lightning features (mixed precision, multi-GPU, custom PL callbacks/loggers), install with `pip install gradnet[pl]` and call `gradnet.pl_fit(...)` instead — it accepts a superset of the lightweight trainer's arguments.
-
 <p align="left">
   <img src="docs/source/_static/all-to-all_net.png"
        alt="Completely connected graph with uniform edgeweights"
@@ -111,8 +108,7 @@ An example showing how to optimally modify existing networks.
 
 - `gradnet.GradNet`: wraps dense and sparse parameterizations, supports directed/undirected networks, masking, custom edge-building costs and more.
 - `gradnet.integrate_ode`: torchdiffeq-powered solver with adjoint and event support for adjacency-dependent dynamics.
-- `gradnet.fit`: lightweight default trainer — a self-contained training loop with TensorBoard/CSV logging, best/periodic checkpointing, a tqdm progress bar, and a loss dtype/device safety net.
-- `gradnet.pl_fit`: optional PyTorch Lightning trainer (requires `gradnet[pl]`).
+- `gradnet.fit`: built-in trainer — a self-contained training loop with TensorBoard/CSV logging, best/periodic checkpointing, a tqdm progress bar, and a loss dtype/device safety net.
 - `gradnet.utils`: helper functions.
 
 ## Credits
@@ -120,7 +116,6 @@ An example showing how to optimally modify existing networks.
 GradNet relies on (and is inspired by) the following open-source projects:
 
 - [PyTorch](https://pytorch.org/)
-- [PyTorch Lightning](https://lightning.ai/)
 - [torchdiffeq](https://github.com/rtqichen/torchdiffeq)
 
 ## License

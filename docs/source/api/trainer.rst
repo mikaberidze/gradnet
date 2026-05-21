@@ -1,11 +1,8 @@
 trainer (module)
 ================
 
-Lightweight default trainer for ``gradnet`` — protocols, built-in
-loggers/callbacks, and the :func:`fit` entry point. Has no
-``pytorch_lightning`` dependency.
-
-For the PyTorch Lightning trainer, see :doc:`pl_trainer </api/pl_trainer>`.
+Built-in trainer for ``gradnet`` — protocols, loggers/callbacks, and the
+:func:`fit` entry point.
 
 .. currentmodule:: gradnet.trainer
 

@@ -27,11 +27,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # "" = base install (no pytorch-lightning); "[pl]" = optional PL trainer
-        extras: ["", "[pl]"]
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -44,7 +39,7 @@ jobs:
       - name: Install package and pytest
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".${{ matrix.extras }}" pytest
+          python -m pip install -e . pytest
 
       - name: Run tests
         run: pytest tests/ -v --tb=short

@@ -444,12 +444,7 @@ class GradNet(nn.Module):
         *,
         map_location: Optional[Union[str, torch.device]] = "cpu",
     ) -> "GradNet":
-        """Load a ``GradNet`` from a checkpoint saved by either trainer.
-
-        Handles both the lightweight :func:`gradnet.fit` format
-        (``{"state_dict": ..., "gradnet_config": ...}``) and the PL
-        :func:`gradnet.pl_fit` format (state_dict keys prefixed with ``gn.``).
-        """
+        """Load a ``GradNet`` from a :func:`gradnet.fit` checkpoint."""
         with _suppress_torch_weights_warning():
             ckpt = torch.load(checkpoint_path, map_location=map_location)
         config = ckpt.get("gradnet_config")
@@ -458,10 +453,6 @@ class GradNet(nn.Module):
         state_dict = ckpt.get("state_dict")
         if state_dict is None:
             raise ValueError("Checkpoint missing 'state_dict'.")
-        # PL wraps params under 'gn.<...>'; strip the prefix when present.
-        if any(k.startswith("gn.") for k in state_dict):
-            state_dict = {k[len("gn."):]: v for k, v in state_dict.items() if k.startswith("gn.")}
-
         model = cls.from_config(config)
         model.load_state_dict(state_dict)
         return model

@@ -92,36 +92,6 @@ def _ensure_lightweight_mocks():
     except Exception:
         _mod('networkx')
 
-    # PyTorch Lightning and submodules referenced in docs
-    try:
-        import pytorch_lightning as _pl  # noqa: F401
-        _have_pl = True
-    except Exception:
-        _have_pl = False
-    if not _have_pl:
-        pl = _mod('pytorch_lightning', pkg=True)
-        pl.LightningModule = _cls('LightningModule')  # minimal base class
-        def _seed_everything(seed=None, workers=None):
-            return None
-        pl.seed_everything = _seed_everything  # type: ignore[attr-defined]
-        # callbacks
-        cbmod = _mod('pytorch_lightning.callbacks', pkg=True)
-        cbmod.Callback = _cls('Callback')  # type: ignore[attr-defined]
-        cbmod.ModelCheckpoint = _cls('ModelCheckpoint')  # type: ignore[attr-defined]
-        # Real PL re-exports Callback at the top level; mirror that so module-level
-        # `class X(pl.Callback)` in pl_trainer.py can be imported during docs build.
-        pl.Callback = cbmod.Callback  # type: ignore[attr-defined]
-        # loggers
-        lg = _mod('pytorch_lightning.loggers', pkg=True)
-        lgl = _mod('pytorch_lightning.loggers.logger')
-        lgl.Logger = _cls('Logger')  # type: ignore[attr-defined]
-        # utilities.warnings
-        utilw = _mod('pytorch_lightning.utilities', pkg=True)
-        utilw_warn = _mod('pytorch_lightning.utilities.warnings')
-        class _PLPossibleUserWarning(Warning):
-            pass
-        utilw_warn.PossibleUserWarning = _PLPossibleUserWarning  # type: ignore[attr-defined]
-
     # tqdm (only for type/attribute presence)
     try:
         import tqdm.auto as _tqa  # noqa: F401
@@ -152,7 +122,7 @@ project = 'gradnet'
 author = 'Guram Mikaberidze, Beso Mikaberidze, Dane Taylor'
 PROJECT_DESCRIPTION = (
     'GradNet provides trainable graph adjacency parameterizations, '
-    'ODE integration utilities, and PyTorch Lightning training helpers.'
+    'ODE integration utilities, and training helpers.'
 )
 KEYWORDS = 'gradnet, graph learning, pytorch, dynamical systems, network optimization'
 copyright = '2025, ' + author
