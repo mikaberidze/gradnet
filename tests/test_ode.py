@@ -44,9 +44,9 @@ def test_integrate_basic_linear_no_event():
 
 
 def test_dtype_and_alignment_and_solver_options():
-    # Ensure x0/tt/f_kwargs are coerced to A's dtype/device and options work
+    # Ensure real-valued solves still align dtypes sensibly and options work.
     A = torch.tensor([[1.0]], dtype=torch.float64)
-    coeff_np = 2.0  # will be coerced to float64 tensor internally via f_kwargs
+    coeff_np = 2.0
 
     def vf(t, x, A, coeff):
         return (A[0, 0] * coeff) * 0.0 * x + 0.0 * x  # intentionally zero dynamics
@@ -70,6 +70,55 @@ def test_dtype_and_alignment_and_solver_options():
     assert _close(y[0], y[-1]) and _close(
         y[0], torch.tensor([3.0], dtype=torch.float64)
     )
+
+
+def test_complex_state_is_not_cast_to_real_by_real_adjacency():
+    A = torch.tensor([[0.0]], dtype=torch.float32)
+
+    def vf(t, x, A):
+        return (1j * 0.0) * x
+
+    x0 = torch.tensor([1.0 + 2.0j], dtype=torch.complex64)
+    tt = torch.linspace(0.0, 1.0, steps=11, dtype=torch.float32)
+
+    t_out, y = integrate_ode(
+        A,
+        vf,
+        x0,
+        tt,
+        method="rk4",
+        solver_options={"step_size": 0.1},
+    )
+
+    assert t_out.dtype == torch.float32
+    assert not t_out.is_complex()
+    assert y.dtype == torch.complex64
+    assert torch.allclose(y, x0.expand_as(y))
+
+
+def test_complex_tensor_kwargs_are_not_cast_to_real_by_real_adjacency():
+    A = torch.tensor([[0.0]], dtype=torch.float32)
+    lam = torch.tensor(1j, dtype=torch.complex64)
+
+    def vf(t, x, A, lam):
+        return lam * x
+
+    x0 = torch.tensor([1.0 + 0.0j], dtype=torch.complex64)
+    tt = torch.linspace(0.0, 0.1, steps=3, dtype=torch.float32)
+
+    t_out, y = integrate_ode(
+        A,
+        vf,
+        x0,
+        tt,
+        f_kwargs={"lam": lam},
+        method="rk4",
+        solver_options={"step_size": 0.05},
+    )
+
+    assert t_out.dtype == torch.float32
+    assert y.dtype == torch.complex64
+    assert torch.all(torch.isfinite(torch.view_as_real(y)))
 
 
 def test_f_kwargs_type_error():
