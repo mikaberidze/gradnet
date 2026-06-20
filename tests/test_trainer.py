@@ -218,6 +218,34 @@ def test_callback_lifecycle_order_and_count(gn):
     assert events == ["start", ("step", 0), ("step", 1), ("step", 2), "end"]
 
 
+def test_callback_can_request_stop(gn):
+    events = []
+
+    class StopAfterTwo:
+        def on_fit_start(self, t):
+            events.append("start")
+
+        def on_step_end(self, t, step, loss, metrics):
+            events.append(("step", step))
+            if step == 1:
+                t.request_stop("target reached")
+
+        def on_fit_end(self, t):
+            events.append(("end", t.current_epoch, t.stop_reason))
+
+    trainer, _ = fit(
+        gn=gn,
+        loss_fn=neg_sum_loss,
+        num_updates=10,
+        callbacks=[StopAfterTwo()],
+        verbose=False,
+    )
+
+    assert events == ["start", ("step", 0), ("step", 1), ("end", 1, "target reached")]
+    assert trainer.should_stop is True
+    assert trainer.stop_reason == "target reached"
+
+
 # --------------------------------------------------------------------- 13. dtype safety net (loss return)
 
 @pytest.mark.parametrize("model_dtype,loss_dtype", [
