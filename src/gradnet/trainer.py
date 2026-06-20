@@ -34,7 +34,19 @@ from .utils import _to_like_struct
 
 
 class LossFn(Protocol):
-    """Loss callable: ``loss_fn(gn, **loss_kwargs) -> Tensor | (Tensor, metrics)``."""
+    """Protocol for loss callables accepted by :func:`fit`.
+
+    A loss function is called once per optimization step as
+    ``loss_fn(gn, **loss_kwargs)``. It may be a plain function, lambda, bound
+    method, callable object, or any object whose ``__call__`` method has this
+    shape. The first argument is the :class:`gradnet.GradNet` being optimized;
+    keyword arguments come from ``loss_kwargs``.
+
+    Implementations must return either a scalar differentiable
+    :class:`torch.Tensor`, or ``(loss, metrics)`` where ``loss`` is that tensor
+    and ``metrics`` is a dictionary of scalar values. Metric values may be
+    floats, ints, or scalar tensors and are logged after conversion to floats.
+    """
 
     def __call__(
         self,
@@ -47,7 +59,20 @@ class LossFn(Protocol):
 
 
 class Callback(Protocol):
-    """Three-hook training callback. Stateless callbacks can omit hooks."""
+    """Protocol for callback objects accepted by :func:`fit`.
+
+    A callback is any object implementing the three lifecycle hooks below.
+    ``fit`` calls ``on_fit_start`` before the first update, ``on_step_end``
+    after every optimizer step, and ``on_fit_end`` after the training loop and
+    checkpoint finalization. Hooks receive the live :class:`GradNetTrainer`
+    state; step-end hooks also receive the zero-based step index, scalar loss,
+    and metrics dictionary.
+    Callbacks may call ``trainer.request_stop(reason)`` to end training after
+    the current step-end callback pass.
+
+    If a callback has no work for a lifecycle point, implement that hook as a
+    no-op method. The trainer invokes all three hooks unconditionally.
+    """
 
     def on_fit_start(self, trainer: "GradNetTrainer") -> None: ...
     def on_step_end(
@@ -77,6 +102,13 @@ class GradNetTrainer:
         self.max_epochs = max_epochs
         self.current_epoch: int = 0
         self.callback_metrics: Dict[str, float] = {}
+        self.should_stop: bool = False
+        self.stop_reason: Optional[str] = None
+
+    def request_stop(self, reason: Optional[str] = None) -> None:
+        """Ask the active training loop to stop after the current callback pass."""
+        self.should_stop = True
+        self.stop_reason = reason
 
 
 # --------------------------------------------------------------------------- Built-in callback
@@ -329,16 +361,123 @@ def fit(
     deterministic: Optional[Union[bool, str]] = None,
     verbose: bool = True,
 ) -> Tuple[GradNetTrainer, Optional[str]]:
-    """Optimise ``gn`` for ``num_updates`` steps.
+    """Optimize a :class:`gradnet.GradNet` with a user-defined loss function.
 
-    Each step evaluates ``loss_fn(gn, **loss_kwargs)``, runs
-    ``loss.backward()``, optionally clips gradients, steps the optimiser
-    (and scheduler if any), optionally renormalises ``gn``, and dispatches
-    metrics to logger/checkpoint/callbacks.
+    This is a small, self-contained training loop for GradNet objects. Each
+    update evaluates ``loss_fn(gn, **loss_kwargs)``, backpropagates through the
+    returned loss, optionally clips gradients, steps the optimizer and scheduler,
+    optionally renormalizes the GradNet parameters, and dispatches scalar metrics
+    to loggers, checkpointing, and callbacks.
 
-    Returns ``(trainer, best_ckpt_path)``. ``trainer.callback_metrics`` holds
-    the last step's metrics; ``best_ckpt_path`` is ``None`` when
-    ``enable_checkpointing=False``.
+    Args:
+      gn (GradNet): GradNet instance to optimize. It is moved to ``device`` and
+        trained in place.
+      loss_fn (LossFn): Callable evaluated once per update as
+        ``loss_fn(gn, **loss_kwargs)``. It may be a function, lambda, bound
+        method, or callable object. It must return either a scalar differentiable tensor ``loss``,
+        or ``(loss, metrics)`` where metrics is a mapping with string keys and scalar values.
+      loss_kwargs (Mapping[str, Any] | None, optional): Keyword arguments passed
+        to ``loss_fn``. Tensor-like values are moved/cast to match ``gn`` before
+        training. If the returned loss tensor has a different dtype or device,
+        the trainer auto-casts it to match ``gn`` and emits a one-time warning.
+      num_updates (int): Maximum number of optimizer updates to run.
+      optim_cls (type, optional): Optimizer class. Defaults to
+        :class:`torch.optim.Adam`.
+      optim_kwargs (dict | None, optional): Keyword arguments for ``optim_cls``.
+        Defaults to ``{"lr": 1e-2}`` when omitted.
+      sched_cls (type | None, optional): Optional learning-rate scheduler class.
+      sched_kwargs (dict | None, optional): Keyword arguments for ``sched_cls``.
+      device (str | torch.device, optional): Training device. ``"auto"`` selects
+        CUDA if available, then MPS if available, otherwise CPU.
+      logger (Logger | bool | None, optional): ``False``/``None`` disables
+        logging. ``True`` creates a TensorBoard logger when available and falls
+        back to CSV. A custom logger must implement ``log_metrics`` and
+        ``finalize``.
+      log_dir (str | None, optional): Directory for the built-in logger.
+      enable_checkpointing (bool, optional): Save best-loss checkpoints and any
+        requested periodic/last checkpoints.
+      checkpoint_dir (str | None, optional): Checkpoint directory. Defaults to
+        ``"checkpoints"`` when checkpointing is enabled.
+      checkpoint_every_n (int | None, optional): Save a periodic checkpoint every
+        ``n`` updates when set.
+      save_last (bool, optional): Save ``last.ckpt`` at the end of training when
+        checkpointing is enabled.
+      callbacks (list[Callback] | None, optional): Callback objects receiving
+        fit-start, step-end, and fit-end hooks. Each object must implement
+        ``on_fit_start(trainer)``, ``on_step_end(trainer, step, loss, metrics)``,
+        and ``on_fit_end(trainer)``; use no-op methods for lifecycle points that
+        do not need custom work. A callback can stop training after the current
+        step by calling ``trainer.request_stop(reason)``.
+      max_time (str | None, optional): Optional wall-clock budget in
+        ``[DD:]HH:MM:SS`` form. Training stops after the current update once the
+        budget is reached.
+      grad_clip_val (float, optional): If positive, gradient norm clipping value.
+      post_step_renorm (bool, optional): If ``True`` and ``gn`` exposes
+        ``renorm_params()``, renormalize after optimizer steps according to
+        ``gn.should_renorm_after_step()`` when that policy exists.
+      compile_model (bool, optional): Try to wrap ``gn`` with
+        :func:`torch.compile`; failures warn and continue uncompiled.
+      seed (int | None, optional): Seed Python, NumPy, and torch RNGs before
+        training.
+      deterministic (bool | str | None, optional): If provided, passed as a bool
+        to :func:`torch.use_deterministic_algorithms`.
+      verbose (bool, optional): Print a model summary and show a tqdm progress
+        bar.
+
+    Returns:
+      tuple: ``(trainer, best_ckpt_path)``. ``trainer.callback_metrics`` holds
+        the last recorded metrics, including ``"loss"``. ``best_ckpt_path`` is
+        the best-loss checkpoint path, or ``None`` when checkpointing is
+        disabled.
+
+    Raises:
+      TypeError: If ``loss_kwargs`` is not a mapping and not ``None``.
+
+    Examples:
+      Basic training with a tensor loss::
+
+        import torch
+        from gradnet import GradNet, fit
+
+        gn = GradNet(num_nodes=5, budget=5.0)
+
+        def loss_fn(gn):
+            return -gn().sum()
+
+        trainer, best_ckpt = fit(
+            gn=gn,
+            loss_fn=loss_fn,
+            num_updates=100,
+            optim_kwargs={"lr": 1e-2},
+            verbose=False,
+        )
+
+      Returning extra metrics and using a callback::
+
+        class Tracker:
+            def on_fit_start(self, trainer):
+                self.losses = []
+
+            def on_step_end(self, trainer, step, loss, metrics):
+                self.losses.append(loss)
+
+            def on_fit_end(self, trainer):
+                pass
+
+        def loss_with_metrics(gn, target_sum):
+            A = gn()
+            loss = (A.sum() - target_sum).pow(2)
+            return loss, {"edge_sum": A.sum()}
+
+        tracker = Tracker()
+        trainer, _ = fit(
+            gn=gn,
+            loss_fn=loss_with_metrics,
+            loss_kwargs={"target_sum": torch.tensor(4.0)},
+            num_updates=50,
+            callbacks=[tracker],
+            logger=True,
+        )
     """
     if seed is not None:
         _seed_everything(seed)
@@ -450,6 +589,8 @@ def fit(
         for cb in cbs:
             cb.on_step_end(trainer, step, metrics_f["loss"], metrics_f)
 
+        if trainer.should_stop:
+            break
         if deadline and time.monotonic() >= deadline:
             break
 
