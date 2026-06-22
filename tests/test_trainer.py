@@ -218,6 +218,26 @@ def test_save_last_creates_last_ckpt(gn, tmp_path):
     assert (tmp_path / "last.ckpt").exists()
 
 
+def test_compiled_checkpoint_loadable_via_from_checkpoint(gn, tmp_path):
+    from gradnet.trainer import CheckpointManager
+
+    try:
+        compiled = torch.compile(gn)
+    except Exception as e:
+        pytest.skip(f"torch.compile unavailable: {e}")
+
+    cfg = gn.export_config()
+    manager = CheckpointManager(str(tmp_path))
+    ckpt_path = tmp_path / "compiled.ckpt"
+    manager._dump(ckpt_path, compiled, cfg)
+
+    saved = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    assert not any(k.startswith("_orig_mod.") for k in saved["state_dict"])
+
+    reloaded = GradNet.from_checkpoint(str(ckpt_path), map_location="cpu")
+    assert reloaded.num_nodes == gn.num_nodes
+
+
 # --------------------------------------------------------------------- 8. max_time
 
 def test_parse_max_time_grammar():

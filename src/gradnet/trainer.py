@@ -198,7 +198,8 @@ class CheckpointManager:
         self._best_path: Optional[str] = None
 
     def _dump(self, path: Path, gn: nn.Module, cfg) -> None:
-        torch.save({"state_dict": gn.state_dict(), "gradnet_config": cfg}, path)
+        inner = getattr(gn, "_orig_mod", gn)
+        torch.save({"state_dict": inner.state_dict(), "gradnet_config": cfg}, path)
 
     def on_step_end(self, step: int, loss: float, gn: nn.Module, cfg) -> None:
         if loss < self._best_loss:
