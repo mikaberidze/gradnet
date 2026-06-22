@@ -60,6 +60,67 @@ def test_loss_returns_metrics_tuple(gn):
     assert "abs_sum" in metrics
 
 
+def test_loss_receives_current_step_when_signature_accepts_step(gn):
+    seen_steps = []
+
+    def loss_with_step(g, step):
+        seen_steps.append(step)
+        return -g().sum(), {"reported_step": step}
+
+    trainer, _ = fit(gn=gn, loss_fn=loss_with_step, num_updates=4, verbose=False)
+
+    assert seen_steps == [0, 1, 2, 3]
+    assert trainer.callback_metrics["reported_step"] == 3.0
+
+
+def test_loss_receives_keyword_only_step_with_loss_kwargs(gn):
+    seen = []
+
+    def loss_with_step_and_target(g, target_sum, *, step):
+        seen.append((step, target_sum.dtype, target_sum.device))
+        return (g().sum() - target_sum - step).pow(2)
+
+    fit(
+        gn=gn,
+        loss_fn=loss_with_step_and_target,
+        loss_kwargs={"target_sum": torch.tensor(4.0)},
+        num_updates=3,
+        verbose=False,
+    )
+
+    assert [step for step, _, _ in seen] == [0, 1, 2]
+    assert all(dtype == gn.dtype for _, dtype, _ in seen)
+    assert all(device == gn.device for _, _, device in seen)
+
+
+def test_single_model_parameter_named_step_is_not_double_bound(gn):
+    def loss_with_model_named_step(step):
+        return -step().sum()
+
+    trainer, _ = fit(
+        gn=gn,
+        loss_fn=loss_with_model_named_step,
+        num_updates=2,
+        verbose=False,
+    )
+
+    assert "loss" in trainer.callback_metrics
+
+
+def test_loss_kwargs_step_is_reserved(gn):
+    def loss_with_step(g, step):
+        return -g().sum() + step
+
+    with pytest.raises(ValueError, match='parameter name "step" is reserved'):
+        fit(
+            gn=gn,
+            loss_fn=loss_with_step,
+            loss_kwargs={"step": 0},
+            num_updates=1,
+            verbose=False,
+        )
+
+
 # --------------------------------------------------------------------- 3. gradient clipping
 
 def test_grad_clipping_calls_torch_clip(monkeypatch, gn):

@@ -9,6 +9,7 @@ warns once per ``fit()`` call.
 from __future__ import annotations
 
 import csv
+import inspect
 import os
 import random
 import re
@@ -37,10 +38,14 @@ class LossFn(Protocol):
     """Protocol for loss callables accepted by :func:`fit`.
 
     A loss function is called once per optimization step as
-    ``loss_fn(gn, **loss_kwargs)``. It may be a plain function, lambda, bound
-    method, callable object, or any object whose ``__call__`` method has this
-    shape. The first argument is the :class:`gradnet.GradNet` being optimized;
-    keyword arguments come from ``loss_kwargs``.
+    ``loss_fn(gn, **loss_kwargs)``. If its signature defines a keyword-compatible
+    ``step`` parameter, :func:`fit` calls it as
+    ``loss_fn(gn, step=step, **loss_kwargs)`` with the zero-based optimization
+    step. It may be a plain function, lambda, bound method, callable object, or
+    any object whose ``__call__`` method has this shape. The first argument is
+    the :class:`gradnet.GradNet` being optimized; keyword arguments come from
+    ``loss_kwargs``. The ``step`` keyword is reserved for the trainer and cannot
+    be supplied through ``loss_kwargs``.
 
     Implementations must return either a scalar differentiable
     :class:`torch.Tensor`, or ``(loss, metrics)`` where ``loss`` is that tensor
@@ -259,9 +264,34 @@ _DTYPE_DEVICE_ERROR_RE = re.compile(
     re.IGNORECASE,
 )
 
+_RESERVED_STEP_KWARG = "step"
+
 
 def _looks_like_dtype_or_device_error(exc: Exception) -> bool:
     return bool(_DTYPE_DEVICE_ERROR_RE.search(str(exc)))
+
+
+def _loss_fn_accepts_keyword_step(loss_fn: LossFn) -> bool:
+    """Return whether ``loss_fn(gn, step=...)`` is an explicit valid call."""
+    try:
+        signature = inspect.signature(loss_fn)
+    except (TypeError, ValueError):
+        return False
+    param = signature.parameters.get(_RESERVED_STEP_KWARG)
+    if param is None:
+        return False
+    return param.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    ) and _signature_accepts_model_and_step(signature)
+
+
+def _signature_accepts_model_and_step(signature: inspect.Signature) -> bool:
+    try:
+        signature.bind_partial(None, **{_RESERVED_STEP_KWARG: 0})
+    except TypeError:
+        return False
+    return True
 
 
 def _warn_loss_mismatch(
@@ -364,22 +394,29 @@ def fit(
     """Optimize a :class:`gradnet.GradNet` with a user-defined loss function.
 
     This is a small, self-contained training loop for GradNet objects. Each
-    update evaluates ``loss_fn(gn, **loss_kwargs)``, backpropagates through the
-    returned loss, optionally clips gradients, steps the optimizer and scheduler,
-    optionally renormalizes the GradNet parameters, and dispatches scalar metrics
-    to loggers, checkpointing, and callbacks.
+    update evaluates ``loss_fn(gn, **loss_kwargs)``. If ``loss_fn`` defines a
+    keyword-compatible ``step`` parameter, the trainer instead evaluates
+    ``loss_fn(gn, step=step, **loss_kwargs)`` with the current zero-based update
+    index. The loop backpropagates through the returned loss, optionally clips
+    gradients, steps the optimizer and scheduler, optionally renormalizes the
+    GradNet parameters, and dispatches scalar metrics to loggers, checkpointing,
+    and callbacks.
 
     Args:
       gn (GradNet): GradNet instance to optimize. It is moved to ``device`` and
         trained in place.
       loss_fn (LossFn): Callable evaluated once per update as
-        ``loss_fn(gn, **loss_kwargs)``. It may be a function, lambda, bound
+        ``loss_fn(gn, **loss_kwargs)``. If its signature defines a
+        keyword-compatible ``step`` parameter, ``fit`` passes the current
+        zero-based update index as ``step``. It may be a function, lambda, bound
         method, or callable object. It must return either a scalar differentiable tensor ``loss``,
         or ``(loss, metrics)`` where metrics is a mapping with string keys and scalar values.
       loss_kwargs (Mapping[str, Any] | None, optional): Keyword arguments passed
         to ``loss_fn``. Tensor-like values are moved/cast to match ``gn`` before
         training. If the returned loss tensor has a different dtype or device,
         the trainer auto-casts it to match ``gn`` and emits a one-time warning.
+        The parameter name ``"step"`` is reserved for the current optimization
+        step and cannot be supplied through ``loss_kwargs``.
       num_updates (int): Maximum number of optimizer updates to run.
       optim_cls (type, optional): Optimizer class. Defaults to
         :class:`torch.optim.Adam`.
@@ -432,6 +469,7 @@ def fit(
 
     Raises:
       TypeError: If ``loss_kwargs`` is not a mapping and not ``None``.
+      ValueError: If ``loss_kwargs`` contains the reserved ``"step"`` key.
 
     Examples:
       Basic training with a tensor loss::
@@ -478,6 +516,14 @@ def fit(
             callbacks=[tracker],
             logger=True,
         )
+
+      Using the current optimization step inside a loss::
+
+        def scheduled_loss(gn, step):
+            warmup = min(1.0, (step + 1) / 10)
+            return -warmup * gn().sum()
+
+        fit(gn=gn, loss_fn=scheduled_loss, num_updates=100)
     """
     if seed is not None:
         _seed_everything(seed)
@@ -487,6 +533,13 @@ def fit(
     if loss_kwargs is not None and not isinstance(loss_kwargs, Mapping):
         raise TypeError(
             "`loss_kwargs` must be a Mapping of keyword arguments (or None)."
+        )
+    if loss_kwargs is not None and _RESERVED_STEP_KWARG in loss_kwargs:
+        raise ValueError(
+            'The loss_kwargs parameter name "step" is reserved for the current '
+            'optimization step passed by fit(). Remove "step" from '
+            "`loss_kwargs`; define a `step` parameter on `loss_fn` to receive "
+            "it automatically."
         )
 
     callbacks = list(callbacks) if callbacks else []
@@ -505,6 +558,7 @@ def fit(
 
     ref_dtype, ref_device = gn.dtype, gn.device
     loss_kwargs = _to_like_struct(loss_kwargs, gn) if loss_kwargs else {}
+    pass_step_to_loss = _loss_fn_accepts_keyword_step(loss_fn)
 
     opt = optim_cls(gn.parameters(), **(optim_kwargs or {"lr": 1e-2}))
     sched = sched_cls(opt, **(sched_kwargs or {})) if sched_cls else None
@@ -532,7 +586,10 @@ def fit(
     for step in range(trainer.max_epochs):
         trainer.current_epoch = step
 
-        out = loss_fn(gn, **loss_kwargs)
+        if pass_step_to_loss:
+            out = loss_fn(gn, step=step, **loss_kwargs)
+        else:
+            out = loss_fn(gn, **loss_kwargs)
         loss, metrics = (out, {}) if isinstance(out, torch.Tensor) else out
 
         if (loss.dtype != ref_dtype) or (loss.device != ref_device):
