@@ -38,8 +38,8 @@ class LossFn(Protocol):
     """Protocol for loss callables accepted by :func:`fit`.
 
     A loss function is called once per optimization step as
-    ``loss_fn(gn, **loss_kwargs)``. If its signature defines a keyword-compatible
-    ``step`` parameter, :func:`fit` calls it as
+    ``loss_fn(gn, **loss_kwargs)``. If its signature defines a parameter
+    ``step``, :func:`fit` calls it as
     ``loss_fn(gn, step=step, **loss_kwargs)`` with the zero-based optimization
     step. It may be a plain function, lambda, bound method, callable object, or
     any object whose ``__call__`` method has this shape. The first argument is
@@ -395,7 +395,7 @@ def fit(
 
     This is a small, self-contained training loop for GradNet objects. Each
     update evaluates ``loss_fn(gn, **loss_kwargs)``. If ``loss_fn`` defines a
-    keyword-compatible ``step`` parameter, the trainer instead evaluates
+    parameter ``step``, the trainer instead evaluates
     ``loss_fn(gn, step=step, **loss_kwargs)`` with the current zero-based update
     index. The loop backpropagates through the returned loss, optionally clips
     gradients, steps the optimizer and scheduler, optionally renormalizes the
@@ -407,7 +407,7 @@ def fit(
         trained in place.
       loss_fn (LossFn): Callable evaluated once per update as
         ``loss_fn(gn, **loss_kwargs)``. If its signature defines a
-        keyword-compatible ``step`` parameter, ``fit`` passes the current
+        parameter ``step``, ``fit`` passes the current
         zero-based update index as ``step``. It may be a function, lambda, bound
         method, or callable object. It must return either a scalar differentiable tensor ``loss``,
         or ``(loss, metrics)`` where metrics is a mapping with string keys and scalar values.
