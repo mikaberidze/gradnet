@@ -131,6 +131,39 @@ def test_denseparam_budget_none_skips_normalization():
     assert torch.allclose(delta.detach(), expected)
 
 
+def test_denseparam_noise_modes(monkeypatch):
+    N = 2
+    mask = torch.ones((N, N))
+    cost = torch.ones((N, N))
+    dp = DenseParameterization(
+        num_nodes=N,
+        budget=None,
+        mask=mask,
+        cost_matrix=cost,
+        delta_sign="free",
+        directed=True,
+        strict_budget=True,
+        cost_aggr_norm=2,
+        rand_init_weights=False,
+    )
+    raw = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
+    with torch.no_grad():
+        dp.delta_adj_raw.copy_(raw)
+
+    fake_noise = torch.tensor([[0.0, 1.0], [0.0, 0.0]])
+
+    def fake_randn_like(x):
+        return fake_noise.to(device=x.device, dtype=x.dtype)
+
+    monkeypatch.setattr(torch, "randn_like", fake_randn_like)
+
+    additive = dp(noise_amplitude=0.5, noise_mode="additive")
+    multiplicative = dp(noise_amplitude=0.5, noise_mode="multiplicative")
+
+    assert torch.allclose(additive, torch.tensor([[1.0, 3.0], [3.0, 4.0]]))
+    assert torch.allclose(multiplicative, torch.tensor([[1.0, 4.0], [3.0, 4.0]]))
+
+
 def test_sparseparam_budget_and_mirroring():
     # Undirected graph with edges (0,1) and (1,2)
     N = 3
@@ -200,6 +233,40 @@ def test_sparseparam_budget_none_skips_normalization():
     assert torch.allclose(pair_to_val[(1, 0)], sp.delta_adj_raw.detach()[0])
     assert torch.allclose(pair_to_val[(1, 2)], sp.delta_adj_raw.detach()[1])
     assert torch.allclose(pair_to_val[(2, 1)], sp.delta_adj_raw.detach()[1])
+
+
+def test_sparseparam_noise_modes(monkeypatch):
+    N = 3
+    edge_index = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
+    sp = SparseParameterization(
+        num_nodes=N,
+        budget=None,
+        edge_index=edge_index,
+        cost_p_sum=torch.ones((2,)),
+        delta_sign="free",
+        directed=True,
+        strict_budget=True,
+        cost_aggr_norm=2,
+        rand_init_weights=False,
+        dtype=torch.float32,
+        device=torch.device("cpu"),
+    )
+    with torch.no_grad():
+        sp.delta_adj_raw.copy_(torch.tensor([2.0, 4.0]))
+
+    fake_noise = torch.tensor([1.0, 0.0])
+
+    def fake_randn_like(x):
+        return fake_noise.to(device=x.device, dtype=x.dtype)
+
+    monkeypatch.setattr(torch, "randn_like", fake_randn_like)
+
+    amp = 1.0 / math.sqrt(2.0)
+    additive = sp(noise_amplitude=amp, noise_mode="additive").coalesce()
+    multiplicative = sp(noise_amplitude=amp, noise_mode="multiplicative").coalesce()
+
+    assert torch.allclose(additive.values(), torch.tensor([3.0, 4.0]))
+    assert torch.allclose(multiplicative.values(), torch.tensor([4.0, 4.0]))
 
 
 def test_gradnet_dense_and_sparse_backends_and_forward_addition():
@@ -273,6 +340,20 @@ def test_gradnet_dense_and_sparse_backends_and_forward_addition():
     gn_nonpos.set_initial_state(torch.ones((N, N)))
     A3 = gn_nonpos()
     assert torch.all(A3 <= 0)
+
+
+def test_gradnet_rejects_unknown_noise_mode():
+    gn = GradNet(
+        num_nodes=2,
+        budget=None,
+        mask=torch.ones((2, 2)),
+        directed=True,
+        delta_sign="free",
+        device="cpu",
+        dtype=torch.float32,
+    )
+    with pytest.raises(ValueError, match="noise_mode must be one of"):
+        gn.get_delta_adj(noise_mode="relative")
 
 
 def test_gradnet_should_renorm_after_step():

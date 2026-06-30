@@ -373,29 +373,42 @@ class GradNet(nn.Module):
         return (self.budget is not None) and self.strict_budget
 
     # --------- Build current delta / adjacency ---------------------------------
-    def get_delta_adj(self, noise_amplitude: float = 0.0) -> torch.Tensor:
+    def get_delta_adj(
+        self, noise_amplitude: float = 0.0, noise_mode: str = "additive"
+    ) -> torch.Tensor:
         """Return the normalized perturbation matrix ``delta`` from the backend.
 
         Args:
           noise_amplitude (float, optional): Standardized magnitude for the
             stochastic perturbation applied to the raw parameters before
             constraints. Defaults to 0 (no noise).
+          noise_mode (str, optional): Noise injection mode. ``"additive"``
+            preserves the historical behavior, adding fixed-norm Gaussian noise
+            to the raw parameters. ``"multiplicative"`` applies fixed-norm
+            Gaussian relative noise as ``raw * (1 + noise)``.
         """
-        return self.param(noise_amplitude=noise_amplitude)
+        return self.param(noise_amplitude=noise_amplitude, noise_mode=noise_mode)
 
-    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
+    def forward(
+        self, noise_amplitude: float = 0.0, noise_mode: str = "additive"
+    ) -> torch.Tensor:
         """Return the full adjacency ``A = adj0 + delta``.
 
         Handles dense/sparse combinations between ``adj0`` and ``delta`` and
         returns either a dense or a sparse tensor accordingly. When
-        ``noise_amplitude > 0`` the same stochastic perturbation as
-        :meth:`get_delta_adj` is injected before constraints.
+        ``noise_amplitude > 0`` the selected stochastic perturbation mode is
+        applied before constraints.
 
         Args:
           noise_amplitude (float, optional): Magnitude of the Gaussian noise
             applied to ``delta_adj_raw`` prior to constraint handling.
+          noise_mode (str, optional): Noise injection mode. ``"additive"``
+            preserves the historical behavior. ``"multiplicative"`` applies
+            relative raw-space noise.
         """
-        delta = self.get_delta_adj(noise_amplitude=noise_amplitude)
+        delta = self.get_delta_adj(
+            noise_amplitude=noise_amplitude, noise_mode=noise_mode
+        )
         A0 = self.adj0
         # Handle dense/sparse combinations
         if isinstance(A0, torch.Tensor) and A0.layout != torch.strided:
@@ -720,31 +733,36 @@ class DenseParameterization(nn.Module):
         self.delta_adj_raw.mul_(scale)  # in-place scaling
 
     # --------- Build current delta ---------------------------------------------
-    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
+    def forward(
+        self, noise_amplitude: float = 0.0, noise_mode: str = "additive"
+    ) -> torch.Tensor:
         """Project raw parameters to a constrained ``delta`` matrix.
 
         Applies optional symmetrization and positivity, then masks inactive
         entries and finally scales to match the cost-weighted p-norm budget.
         When ``noise_amplitude > 0``, injects Gaussian noise with norm
-        ``sqrt(dof) * noise_amplitude`` before constraint handling.
+        ``sqrt(dof) * noise_amplitude`` before constraint handling. In
+        ``"additive"`` mode the noise is added to the raw parameters; in
+        ``"multiplicative"`` mode it is applied as relative noise.
 
         Args:
-          noise_amplitude (float, optional): Multiplicative factor for the
+          noise_amplitude (float, optional): Standardized magnitude for the
             Gaussian perturbation applied to ``delta_adj_raw``. Defaults to 0.
+          noise_mode (str, optional): Noise injection mode. ``"additive"``
+            adds fixed-norm Gaussian noise to ``delta_adj_raw``.
+            ``"multiplicative"`` applies fixed-norm Gaussian relative noise as
+            ``delta_adj_raw * (1 + noise)``.
 
         Returns:
           torch.Tensor: Normalized perturbation matrix ``delta``.
         """
         delta = self.delta_adj_raw
-        amp = float(noise_amplitude)
-        if amp != 0.0:
-            noise = torch.randn_like(delta)
-            eps = delta.new_tensor(1e-12)
-            noise_norm = torch.linalg.norm(noise)
-            dof = max(1, self.degrees_of_freedom())
-            target = (delta.new_tensor(float(dof)) ** 0.5) * abs(amp)
-            noise = noise * (target / torch.clamp(noise_norm, min=eps))
-            delta = delta + noise
+        delta = _apply_raw_noise(
+            delta,
+            noise_amplitude=noise_amplitude,
+            noise_mode=noise_mode,
+            dof=max(1, self.degrees_of_freedom()),
+        )
 
         if not self.directed:
             delta = symmetrize(delta)
@@ -917,33 +935,38 @@ class SparseParameterization(nn.Module):
         scale = target / torch.clamp(wnorm, min=eps)
         self.delta_adj_raw.mul_(scale)
 
-    def forward(self, noise_amplitude: float = 0.0) -> torch.Tensor:
+    def forward(
+        self, noise_amplitude: float = 0.0, noise_mode: str = "additive"
+    ) -> torch.Tensor:
         """Project raw edge weights to a sparse, normalized ``delta``.
 
         Applies optional positivity in vector space, scales to match the
         cost-weighted p-norm budget, and constructs a COO matrix. In
         ``directed=False`` mode, edges are mirrored.
-        When ``noise_amplitude > 0``,
-        adds Gaussian noise with norm ``sqrt(dof) * noise_amplitude`` to the
-        raw edge weights before enforcing constraints.
+        When ``noise_amplitude > 0``, applies Gaussian noise with norm
+        ``sqrt(dof) * noise_amplitude`` to the raw edge weights before
+        enforcing constraints. In ``"additive"`` mode the noise is added to the
+        raw weights; in ``"multiplicative"`` mode it is applied as relative
+        noise.
 
         Args:
-          noise_amplitude (float, optional): Multiplicative noise factor for
-            the raw edge weights. Defaults to 0.
+          noise_amplitude (float, optional): Standardized magnitude for the
+            Gaussian perturbation applied to raw edge weights. Defaults to 0.
+          noise_mode (str, optional): Noise injection mode. ``"additive"``
+            adds fixed-norm Gaussian noise to the raw edge weights.
+            ``"multiplicative"`` applies fixed-norm Gaussian relative noise as
+            ``raw * (1 + noise)``.
 
         Returns:
           torch.Tensor: Coalesced sparse COO tensor of shape ``(N, N)``.
         """
         w = self.delta_adj_raw
-        amp = float(noise_amplitude)
-        if amp != 0.0:
-            noise = torch.randn_like(w)
-            eps = w.new_tensor(1e-12)
-            noise_norm = torch.linalg.norm(noise)
-            dof = max(1, self.degrees_of_freedom())
-            target = (w.new_tensor(float(dof)) ** 0.5) * abs(amp)
-            noise = noise * (target / torch.clamp(noise_norm, min=eps))
-            w = w + noise
+        w = _apply_raw_noise(
+            w,
+            noise_amplitude=noise_amplitude,
+            noise_mode=noise_mode,
+            dof=max(1, self.degrees_of_freedom()),
+        )
 
         if self.delta_sign == "nonnegative":
             w = square(w)
@@ -1066,6 +1089,36 @@ def symmetrize(matrix: torch.Tensor) -> torch.Tensor:
       torch.Tensor: Symmetrized matrix.
     """
     return 0.5 * (matrix + matrix.transpose(-1, -2))
+
+
+def _apply_raw_noise(
+    raw: torch.Tensor,
+    *,
+    noise_amplitude: float = 0.0,
+    noise_mode: str = "additive",
+    dof: int,
+) -> torch.Tensor:
+    """Apply fixed-norm Gaussian noise in raw parameter space."""
+    mode = str(noise_mode).lower()
+    allowed_modes = {"additive", "multiplicative"}
+    if mode not in allowed_modes:
+        raise ValueError(
+            f"noise_mode must be one of {sorted(allowed_modes)}; got {noise_mode!r}"
+        )
+
+    amp = float(noise_amplitude)
+    if amp == 0.0:
+        return raw
+
+    noise = torch.randn_like(raw)
+    eps = raw.new_tensor(1e-12)
+    noise_norm = torch.linalg.norm(noise)
+    target = (raw.new_tensor(float(max(1, dof))) ** 0.5) * abs(amp)
+    noise = noise * (target / torch.clamp(noise_norm, min=eps))
+
+    if mode == "additive":
+        return raw + noise
+    return raw * (1 + noise)
 
 
 def _is_sparse_tensor(x: object) -> bool:
