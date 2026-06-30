@@ -379,7 +379,7 @@ class GradNet(nn.Module):
         Args:
           noise_amplitude (float, optional): Standardized magnitude for the
             stochastic perturbation applied to the raw parameters before
-            constraints. Defaults to 0 (deterministic).
+            constraints. Defaults to 0 (no noise).
         """
         return self.param(noise_amplitude=noise_amplitude)
 
